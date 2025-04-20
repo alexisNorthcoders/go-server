@@ -1,6 +1,7 @@
 package models
 
 import (
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,12 +50,12 @@ type HighScore struct {
 
 func GetTopScores(limit int) ([]HighScore, error) {
 	rows, err := DB.Query(`
-		SELECT u.username, s.score, s.timestamp
-		FROM scores s
-		JOIN users u ON s.user_id = u.id
-		ORDER BY s.score DESC, s.timestamp DESC
-		LIMIT ?
-	`, limit)
+	SELECT COALESCE(u.username, 'Guest') AS username, s.score, s.timestamp
+	FROM scores s
+	JOIN users u ON s.user_id = u.id
+	ORDER BY s.score DESC, s.timestamp DESC
+	LIMIT ?
+`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +66,7 @@ func GetTopScores(limit int) ([]HighScore, error) {
 		var hs HighScore
 		err := rows.Scan(&hs.Username, &hs.Score, &hs.Timestamp)
 		if err != nil {
+			log.Fatal(err)
 			return nil, err
 		}
 		scores = append(scores, hs)
