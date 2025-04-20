@@ -23,15 +23,29 @@ func InitDB() error {
 		return err
 	}
 
-	createTable := `
+	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
 		username TEXT UNIQUE NOT NULL,
 		password TEXT NOT NULL
-	);
-	`
-	_, err = DB.Exec(createTable)
-	return err
+	);`
+	if _, err = DB.Exec(createUsersTable); err != nil {
+		return err
+	}
+
+	createScoresTable := `
+	CREATE TABLE IF NOT EXISTS scores (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		score INTEGER NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(user_id) REFERENCES users(id)
+	);`
+	if _, err = DB.Exec(createScoresTable); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func CreateUser(username, hashedPassword string) error {
