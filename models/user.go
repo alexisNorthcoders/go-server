@@ -26,8 +26,9 @@ func InitDB() error {
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
-		username TEXT UNIQUE NOT NULL,
-		password TEXT NOT NULL
+		username TEXT UNIQUE,
+		password TEXT,
+		is_anonymous INTEGER DEFAULT 0
 	);`
 	if _, err = DB.Exec(createUsersTable); err != nil {
 		return err
@@ -81,4 +82,9 @@ func AllUsers() ([]User, error) {
 		users = append(users, user)
 	}
 	return users, nil
+}
+
+func CreateAnonymousUser(id string) error {
+	_, err := DB.Exec("INSERT INTO users (id, is_anonymous) VALUES (?, 1)", id)
+	return err
 }

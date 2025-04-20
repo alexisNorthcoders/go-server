@@ -5,7 +5,6 @@ import (
 	"go-server/models"
 	"go-server/utils"
 	"net/http"
-	"strings"
 )
 
 type ScoreRequest struct {
@@ -15,37 +14,22 @@ type ScoreRequest struct {
 
 func AddScoreHandler(w http.ResponseWriter, r *http.Request) {
 
-	authHeader := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		http.Error(w, "Missing or invalid Authorization header", http.StatusUnauthorized)
-		return
-	}
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-	claims, err := utils.ValidateToken(tokenString)
+	userID, err := utils.GetUserIDFromToken(r)
 	if err != nil {
-		http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
-		return
-	}
-
-	userID, ok := claims["userId"].(string)
-	if !ok || userID == "" {
-		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
 
 	var req struct {
 		Score int `json:"score"`
 	}
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.Score == 0 {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Score == 0 {
 		http.Error(w, "Invalid score", http.StatusBadRequest)
 		return
 	}
 
-	err = models.AddScore(userID, req.Score)
-	if err != nil {
-		http.Error(w, "Could not add score", http.StatusInternalServerError)
+	if err := models.AddScore(userID, req.Score); err != nil {
+		http.Error(w, "Failed to add score", http.StatusInternalServerError)
 		return
 	}
 
@@ -62,6 +46,16 @@ func GetUserScoresHandler(w http.ResponseWriter, r *http.Request) {
 	scores, err := models.GetScoresForUser(userID)
 	if err != nil {
 		http.Error(w, "Could not fetch scores", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(scores)
+}
+
+func HighScoresHandler(w http.ResponseWriter, r *http.Request) {
+	scores, err := models.GetTopScores(20)
+	if err != nil {
+		http.Error(w, "Failed to get high scores", http.StatusInternalServerError)
 		return
 	}
 
