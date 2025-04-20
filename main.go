@@ -19,6 +19,8 @@ func main() {
 	http.HandleFunc("/anonymous", logRequest(handlers.AnonymousHandler, "/anonymous"))
 	http.HandleFunc("/logout", logRequest(handlers.LogoutHandler, "/logout"))
 	http.HandleFunc("/verify-token", logRequest(handlers.ValidateHandler, "/verify-token"))
+	http.HandleFunc("/add-score", logRequest(handlers.AddScoreHandler, "/add-score"))
+	http.HandleFunc("/user-scores", logRequest(handlers.GetUserScoresHandler, "/user-scores"))
 
 	log.Println("Server running on :8080")
 	http.ListenAndServe(":8080", nil)
