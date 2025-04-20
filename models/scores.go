@@ -40,3 +40,34 @@ func GetScoresForUser(userID string) ([]Score, error) {
 	}
 	return scores, nil
 }
+
+type HighScore struct {
+	Username  string    `json:"username"`
+	Score     int       `json:"score"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+func GetTopScores(limit int) ([]HighScore, error) {
+	rows, err := DB.Query(`
+		SELECT u.username, s.score, s.timestamp
+		FROM scores s
+		JOIN users u ON s.user_id = u.id
+		ORDER BY s.score DESC, s.timestamp DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scores []HighScore
+	for rows.Next() {
+		var hs HighScore
+		err := rows.Scan(&hs.Username, &hs.Score, &hs.Timestamp)
+		if err != nil {
+			return nil, err
+		}
+		scores = append(scores, hs)
+	}
+	return scores, nil
+}

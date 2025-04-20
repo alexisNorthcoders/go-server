@@ -1,7 +1,10 @@
 package utils
 
 import (
+	"errors"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -27,4 +30,23 @@ func ValidateToken(tokenStr string) (jwt.MapClaims, error) {
 		return nil, err
 	}
 	return token.Claims.(jwt.MapClaims), nil
+}
+
+func GetUserIDFromToken(r *http.Request) (string, error) {
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", errors.New("missing auth header")
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+
+	claims, err := ValidateToken(token)
+	if err != nil {
+		return "", err
+	}
+
+	userID, ok := claims["userId"].(string)
+	if !ok {
+		return "", errors.New("userId claim not found")
+	}
+	return userID, nil
 }

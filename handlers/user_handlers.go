@@ -69,6 +69,11 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 func AnonymousHandler(w http.ResponseWriter, r *http.Request) {
 	userID := uuid.New().String()
 
+	if err := models.CreateAnonymousUser(userID); err != nil {
+		http.Error(w, "Failed to create anonymous user", http.StatusInternalServerError)
+		return
+	}
+
 	token, err := utils.GenerateToken("anonymous", userID)
 	if err != nil {
 		http.Error(w, "Failed to generate anonymous token", http.StatusInternalServerError)

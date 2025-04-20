@@ -1,6 +1,2 @@
 nohup: ignoring input
-2025/04/20 21:22:58 Server running on :8080
-2025/04/20 21:23:24 Endpoint called: /anonymous | Method: POST | RemoteAddr: [::1]:41896
-2025/04/20 21:23:26 Endpoint called: /verify-token | Method: POST | RemoteAddr: [::1]:41900
-2025/04/20 21:24:38 Endpoint called: /anonymous | Method: POST | RemoteAddr: [::1]:48128
-2025/04/20 21:24:39 Endpoint called: /verify-token | Method: POST | RemoteAddr: [::1]:48142
+2025/04/20 22:08:03 Server running on :8080
