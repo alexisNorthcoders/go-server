@@ -1,2 +1,7 @@
 nohup: ignoring input
-2025/04/20 22:08:03 Server running on :8080
+2025/04/20 22:22:27 Server running on :8080
+2025/04/20 22:22:57 Endpoint called: /high-scores | Method: GET | RemoteAddr: [::1]:54382
+2025/04/20 22:22:58 Endpoint called: /anonymous | Method: POST | RemoteAddr: [::1]:54392
+2025/04/20 22:23:00 Endpoint called: /verify-token | Method: POST | RemoteAddr: [::1]:54400
+2025/04/20 22:23:26 Endpoint called: /add-score | Method: POST | RemoteAddr: [::1]:46612
+2025/04/20 22:23:30 Endpoint called: /high-scores | Method: GET | RemoteAddr: [::1]:60520
