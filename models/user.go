@@ -1,0 +1,70 @@
+package models
+
+import (
+	"database/sql"
+	"errors"
+
+	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
+)
+
+var DB *sql.DB
+
+type User struct {
+	ID       string
+	Username string
+	Password string
+}
+
+func InitDB() error {
+	var err error
+	DB, err = sql.Open("sqlite3", "./users.db")
+	if err != nil {
+		return err
+	}
+
+	createTable := `
+	CREATE TABLE IF NOT EXISTS users (
+		id TEXT PRIMARY KEY,
+		username TEXT UNIQUE NOT NULL,
+		password TEXT NOT NULL
+	);
+	`
+	_, err = DB.Exec(createTable)
+	return err
+}
+
+func CreateUser(username, hashedPassword string) error {
+	id := uuid.New().String()
+	_, err := DB.Exec("INSERT INTO users (id, username, password) VALUES (?, ?, ?)", id, username, hashedPassword)
+	return err
+}
+
+func FindByUsername(username string) (User, error) {
+	row := DB.QueryRow("SELECT id, username, password FROM users WHERE username = ?", username)
+	var user User
+	err := row.Scan(&user.ID, &user.Username, &user.Password)
+	if err == sql.ErrNoRows {
+		return User{}, errors.New("user not found")
+	}
+	return user, err
+}
+
+func AllUsers() ([]User, error) {
+	rows, err := DB.Query("SELECT id, username, password FROM users")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var user User
+		err := rows.Scan(&user.ID, &user.Username, &user.Password)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, nil
+}
