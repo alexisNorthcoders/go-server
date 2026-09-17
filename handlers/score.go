@@ -5,11 +5,23 @@ import (
 	"go-server/models"
 	"go-server/utils"
 	"net/http"
+	"strings"
 )
 
 type ScoreRequest struct {
 	UserID string `json:"userId"`
 	Score  int    `json:"score"`
+}
+
+type AuthenticatedScoreRequest struct {
+	Token    string `json:"token"`
+	ClientID string `json:"clientId"`
+	Score    int    `json:"score"`
+}
+
+type AnonymousScoreRequest struct {
+	ClientID string `json:"clientId"`
+	Score    int    `json:"score"`
 }
 
 func AddScoreHandler(w http.ResponseWriter, r *http.Request) {
@@ -59,5 +71,101 @@ func HighScoresHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	json.NewEncoder(w).Encode(scores)
+}
+
+func ScoresHandler(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	if r.Method == http.MethodPost {
+		if strings.Contains(path, "/anonymous") {
+			PostAnonymousScoreHandler(w, r)
+		} else {
+			PostAuthenticatedScoreHandler(w, r)
+		}
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		if strings.Contains(path, "/anonymous/") {
+			parts := strings.Split(path, "/")
+			for i, part := range parts {
+				if part == "anonymous" && i+1 < len(parts) {
+					clientID := parts[i+1]
+					GetAnonymousScoresHandler(w, r, clientID)
+					return
+				}
+			}
+		}
+		parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
+		if len(parts) > 1 && parts[len(parts)-1] != "" {
+			userID := parts[len(parts)-1]
+			GetUserScoresWithPathHandler(w, r, userID)
+			return
+		}
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func PostAuthenticatedScoreHandler(w http.ResponseWriter, r *http.Request) {
+	var req AuthenticatedScoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Score == 0 {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := utils.GetUserIDFromToken(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if err := models.AddScoreWithClientID(userID, req.ClientID, req.Score); err != nil {
+		http.Error(w, "Failed to add score", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Score added"})
+}
+
+func PostAnonymousScoreHandler(w http.ResponseWriter, r *http.Request) {
+	var req AnonymousScoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Score == 0 || req.ClientID == "" {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if err := models.AddAnonymousScore(req.ClientID, req.Score); err != nil {
+		http.Error(w, "Failed to add score", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": "Anonymous score added"})
+}
+
+func GetUserScoresWithPathHandler(w http.ResponseWriter, r *http.Request, userID string) {
+	scores, err := models.GetScoresForUser(userID)
+	if err != nil {
+		http.Error(w, "Could not fetch scores", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scores)
+}
+
+func GetAnonymousScoresHandler(w http.ResponseWriter, r *http.Request, clientID string) {
+	scores, err := models.GetAnonymousScoresForClient(clientID)
+	if err != nil {
+		http.Error(w, "Could not fetch anonymous scores", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scores)
 }
