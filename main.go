@@ -8,7 +8,11 @@ import (
 	"go-server/models"
 )
 
+var version = "dev"
+
 func main() {
+	log.Printf("go-server version %s", version)
+
 	if err := models.InitDB(); err != nil {
 		log.Fatalf("Failed to init DB: %v", err)
 	}
