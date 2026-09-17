@@ -18,6 +18,7 @@ jobs:
             set -e
             cd /root/Projects/go-server
             git pull origin master
-            go build -o go-server .
+            chmod +x build.sh
+            ./build.sh
             pm2 startOrReload ecosystem.config.cjs
             pm2 save
