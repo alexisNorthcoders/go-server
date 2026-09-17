@@ -37,7 +37,8 @@ func InitDB() error {
 	createScoresTable := `
 	CREATE TABLE IF NOT EXISTS scores (
 		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
+		user_id TEXT,
+		client_id TEXT,
 		score INTEGER NOT NULL,
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(user_id) REFERENCES users(id)
@@ -45,6 +46,10 @@ func InitDB() error {
 	if _, err = DB.Exec(createScoresTable); err != nil {
 		return err
 	}
+
+	// Add client_id column if it doesn't exist (for existing databases)
+	addClientIDColumn := `ALTER TABLE scores ADD COLUMN client_id TEXT;`
+	DB.Exec(addClientIDColumn) // Ignore error if column already exists
 
 	return nil
 }

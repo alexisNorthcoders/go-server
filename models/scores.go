@@ -9,7 +9,8 @@ import (
 
 type Score struct {
 	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
+	UserID    *string   `json:"userId,omitempty"`
+	ClientID  *string   `json:"clientId,omitempty"`
 	Score     int       `json:"score"`
 	Timestamp time.Time `json:"timestamp"`
 }
@@ -23,8 +24,26 @@ func AddScore(userID string, value int) error {
 	return err
 }
 
+func AddScoreWithClientID(userID, clientID string, value int) error {
+	id := uuid.New().String()
+	_, err := DB.Exec(
+		"INSERT INTO scores (id, user_id, client_id, score) VALUES (?, ?, ?, ?)",
+		id, userID, clientID, value,
+	)
+	return err
+}
+
+func AddAnonymousScore(clientID string, value int) error {
+	id := uuid.New().String()
+	_, err := DB.Exec(
+		"INSERT INTO scores (id, client_id, score) VALUES (?, ?, ?)",
+		id, clientID, value,
+	)
+	return err
+}
+
 func GetScoresForUser(userID string) ([]Score, error) {
-	rows, err := DB.Query("SELECT id, user_id, score, timestamp FROM scores WHERE user_id = ? ORDER BY timestamp DESC", userID)
+	rows, err := DB.Query("SELECT id, user_id, client_id, score, timestamp FROM scores WHERE user_id = ? ORDER BY timestamp DESC", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +52,26 @@ func GetScoresForUser(userID string) ([]Score, error) {
 	var scores []Score
 	for rows.Next() {
 		var s Score
-		err := rows.Scan(&s.ID, &s.UserID, &s.Score, &s.Timestamp)
+		err := rows.Scan(&s.ID, &s.UserID, &s.ClientID, &s.Score, &s.Timestamp)
+		if err != nil {
+			return nil, err
+		}
+		scores = append(scores, s)
+	}
+	return scores, nil
+}
+
+func GetAnonymousScoresForClient(clientID string) ([]Score, error) {
+	rows, err := DB.Query("SELECT id, user_id, client_id, score, timestamp FROM scores WHERE client_id = ? ORDER BY timestamp DESC", clientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scores []Score
+	for rows.Next() {
+		var s Score
+		err := rows.Scan(&s.ID, &s.UserID, &s.ClientID, &s.Score, &s.Timestamp)
 		if err != nil {
 			return nil, err
 		}
@@ -50,9 +88,9 @@ type HighScore struct {
 
 func GetTopScores(limit int) ([]HighScore, error) {
 	rows, err := DB.Query(`
-	SELECT COALESCE(u.username, 'Guest') AS username, s.score, s.timestamp
+	SELECT COALESCE(u.username, 'Anonymous') AS username, s.score, s.timestamp
 	FROM scores s
-	JOIN users u ON s.user_id = u.id
+	LEFT JOIN users u ON s.user_id = u.id
 	ORDER BY s.score DESC, s.timestamp DESC
 	LIMIT ?
 `, limit)

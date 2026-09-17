@@ -26,6 +26,8 @@ func main() {
 	http.HandleFunc("/add-score", logRequest(handlers.AddScoreHandler, "/add-score"))
 	http.HandleFunc("/user-scores", logRequest(handlers.GetUserScoresHandler, "/user-scores"))
 	http.HandleFunc("/high-scores", logRequest(handlers.HighScoresHandler, "/high-scores"))
+	http.HandleFunc("/scores/", logRequest(handlers.ScoresHandler, "/scores"))
+	http.HandleFunc("/scores", logRequest(handlers.ScoresHandler, "/scores"))
 
 	log.Println("Server running on :8080")
 	http.ListenAndServe(":8080", nil)
