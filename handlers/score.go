@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"go-server/models"
 	"go-server/utils"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -165,6 +166,7 @@ func PostAnonymousScoreHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := models.AddAnonymousScore(req.ClientID, req.Score); err != nil {
+		log.Printf("AddAnonymousScore failed: %v", err)
 		http.Error(w, "Failed to add score", http.StatusInternalServerError)
 		return
 	}

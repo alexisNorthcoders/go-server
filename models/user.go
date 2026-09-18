@@ -62,7 +62,59 @@ func InitDB() error {
 	addClientIDColumn := `ALTER TABLE scores ADD COLUMN client_id TEXT;`
 	DB.Exec(addClientIDColumn) // Ignore error if column already exists
 
-	return nil
+	return relaxScoresUserIDNotNull()
+}
+
+// relaxScoresUserIDNotNull rebuilds the scores table when an older database
+// declared user_id NOT NULL, which rejects anonymous scores (user_id is NULL).
+func relaxScoresUserIDNotNull() error {
+	rows, err := DB.Query("PRAGMA table_info(scores)")
+	if err != nil {
+		return err
+	}
+	userIDNotNull := false
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, colType string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "user_id" && notNull == 1 {
+			userIDNotNull = true
+		}
+	}
+	rows.Close()
+	if !userIDNotNull {
+		return nil
+	}
+
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmts := []string{
+		`CREATE TABLE scores_new (
+			id TEXT PRIMARY KEY,
+			user_id TEXT,
+			client_id TEXT,
+			score INTEGER NOT NULL,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(user_id) REFERENCES users(id)
+		)`,
+		`INSERT INTO scores_new (id, user_id, client_id, score, timestamp)
+			SELECT id, user_id, client_id, score, timestamp FROM scores`,
+		`DROP TABLE scores`,
+		`ALTER TABLE scores_new RENAME TO scores`,
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func CreateUser(username, hashedPassword string) error {
