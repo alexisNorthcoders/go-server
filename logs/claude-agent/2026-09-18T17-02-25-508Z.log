@@ -1,0 +1,57 @@
+runId=2026-09-18T17-02-25-508Z
+cwd=/home/alexis/Projects/go-server
+bin=/home/alexis/.local/bin/claude
+--- user prompt ---
+# GitHub issue #1
+
+**Repository:** alexisNorthcoders/go-server
+**URL:** https://github.com/alexisNorthcoders/go-server/issues/1
+**State:** OPEN
+**Labels:** ready-for-agent
+**Title:** Appearance API: store each player's snake colours
+
+## Body
+## What to build
+
+Store each player's snake appearance on their account so it follows them across browsers. The snake-phaser welcome screen is getting a colour picker (head / body / eyes chosen from a fixed palette); logged-in players' choices are saved here, and this API is their source of truth. Anonymous players keep theirs client-side only.
+
+- A new `appearances` table, one row per user: `user_id` (primary key), `data` (a JSON document), `updated_at`. Chosen as a JSON document rather than columns so future special skins can be added as a new field (e.g. `{"skin":"lava"}`) without a migration.
+- `GET /appearance`: returns the authenticated user's appearance document, or 404 if they have none saved yet.
+- `PUT /appearance`: replaces the authenticated user's appearance document.
+- Both endpoints require a valid JWT, like the existing score endpoints.
+
+Document shape for now:
+
+```json
+{"head":"#8fd14f","body":"#d400c8","eyes":"#e8dcc0"}
+```
+
+Validation is format-only: every value must be a `#rrggbb` hex string and only the keys `head`, `body`, `eyes` are accepted. The server deliberately does **not** check colours against the client's palette (that would duplicate the palette in Go; real enforcement arrives with skin ownership).
+
+## Acceptance criteria
+
+- [ ] `GET` before anything is saved returns 404
+- [ ] `PUT` then `GET` returns the saved document
+- [ ] `PUT` with a malformed hex value or an unknown key returns 400 and saves nothing
+- [ ] Both endpoints return 401 without a valid token
+- [ ] Existing databases gain the table on startup without losing data
+- [ ] Go tests cover the cases above
+
+## Blocked by
+
+None (can start immediately)
+--- (PM2 / parent-process constraints prepended for agent) ---
+
+[out] I've added `GET /appearance` and `PUT /appearance` and committed them to the current branch. `go vet` is clean and the full `go test ./...` run passes. I did not run `/code-review`, so the change has had no separate review pass.
+
+- **Table:** the new `appearances` table is created with `CREATE TABLE IF NOT EXISTS` in `InitDB` (`models/user.go`). Existing databases gain it on startup without losing data. `models/appearance.go` holds the get and upsert helpers.
+- **`GET`:** returns the saved document, or 404 if none is saved.
+- **`PUT`:** replaces the whole document. It returns 400 and saves nothing if a value isn't `#rrggbb` or a key isn't `head`, `body` or `eyes`. The request body is capped at 4 KB.
+- **Auth:** both endpoints return 401 without a valid token.
+- **Tests:** `handlers/appearance_test.go` covers every acceptance criterion. That includes the table being re-created on a database that lacks it, and a failed `PUT` leaving an existing document unchanged.
+
+The issue doesn't say whether all three keys are required, so I let a `PUT` omit any of them (an empty `{}` is accepted). Say if you want all three enforced.
+
+The app was not restarted. Run PM2 manually to deploy, since the new route is in `main.go`. The untracked `logs/` directory was already there and I left it out of the commit.
+
+--- process end ok=true exit=0 timedOut=false ---
