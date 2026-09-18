@@ -47,6 +47,17 @@ func InitDB() error {
 		return err
 	}
 
+	createAppearancesTable := `
+	CREATE TABLE IF NOT EXISTS appearances (
+		user_id TEXT PRIMARY KEY,
+		data TEXT NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(user_id) REFERENCES users(id)
+	);`
+	if _, err = DB.Exec(createAppearancesTable); err != nil {
+		return err
+	}
+
 	// Add client_id column if it doesn't exist (for existing databases)
 	addClientIDColumn := `ALTER TABLE scores ADD COLUMN client_id TEXT;`
 	DB.Exec(addClientIDColumn) // Ignore error if column already exists
