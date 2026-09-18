@@ -74,6 +74,17 @@ func HighScoresHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(scores)
 }
 
+func LeaderboardHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	scores, err := models.GetLeaderboard(100)
+	if err != nil {
+		http.Error(w, "Failed to get leaderboard", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(scores)
+}
+
 func ScoresHandler(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 

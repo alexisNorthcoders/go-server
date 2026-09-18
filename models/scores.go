@@ -112,6 +112,33 @@ func GetTopScores(limit int) ([]HighScore, error) {
 	return scores, nil
 }
 
+func GetLeaderboard(limit int) ([]HighScore, error) {
+	rows, err := DB.Query(`
+		SELECT u.username, s.score, s.timestamp
+		FROM scores s
+		JOIN users u ON s.user_id = u.id
+		WHERE s.user_id IS NOT NULL
+		ORDER BY s.score DESC, s.timestamp DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var scores []HighScore
+	for rows.Next() {
+		var hs HighScore
+		err := rows.Scan(&hs.Username, &hs.Score, &hs.Timestamp)
+		if err != nil {
+			log.Fatal(err)
+			return nil, err
+		}
+		scores = append(scores, hs)
+	}
+	return scores, nil
+}
+
 func MigrateScores(clientID, userID string) (int64, error) {
 	result, err := DB.Exec(
 		"UPDATE scores SET user_id = ?, client_id = NULL WHERE client_id = ?",
