@@ -152,6 +152,116 @@ func TestPostAnonymousScoreHandlerMissingClientID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 }
 
+func TestMigrateScoresHandler(t *testing.T) {
+	clientID := "migrate-client-" + time.Now().Format("20060102150405.000")
+	userID := "migrate-user-" + time.Now().Format("20060102150405")
+	token, _ := utils.GenerateToken("testuser", userID)
+
+	// Add some anonymous scores
+	models.AddAnonymousScore(clientID, 100)
+	models.AddAnonymousScore(clientID, 200)
+
+	// Verify anonymous scores exist
+	anonScores, _ := models.GetAnonymousScoresForClient(clientID)
+	assert.Greater(t, len(anonScores), 0)
+	expectedCount := len(anonScores)
+
+	// Migrate scores
+	req := MigrateScoresRequest{
+		UserID: userID,
+	}
+
+	body, _ := json.Marshal(req)
+	request := httptest.NewRequest("POST", "/scores/migrate/"+clientID, bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+
+	MigrateScoresHandler(response, request, clientID)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+
+	var resp map[string]interface{}
+	json.NewDecoder(response.Body).Decode(&resp)
+	assert.Equal(t, "Scores migrated successfully", resp["message"])
+	assert.Equal(t, float64(expectedCount), resp["count"])
+
+	// Verify scores are now associated with user
+	userScores, err := models.GetScoresForUser(userID)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedCount, len(userScores))
+
+	// Verify scores no longer have client_id
+	for _, s := range userScores {
+		assert.Nil(t, s.ClientID)
+		assert.NotNil(t, s.UserID)
+		assert.Equal(t, userID, *s.UserID)
+	}
+
+	// Verify anonymous scores no longer exist for this client
+	anonScoresAfter, _ := models.GetAnonymousScoresForClient(clientID)
+	assert.Equal(t, 0, len(anonScoresAfter))
+}
+
+func TestMigrateScoresHandlerNoScores(t *testing.T) {
+	clientID := "migrate-client-noscore-" + time.Now().Format("20060102150405.000")
+	userID := "migrate-user-noscore-" + time.Now().Format("20060102150405")
+	token, _ := utils.GenerateToken("testuser", userID)
+
+	req := MigrateScoresRequest{
+		UserID: userID,
+	}
+
+	body, _ := json.Marshal(req)
+	request := httptest.NewRequest("POST", "/scores/migrate/"+clientID, bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+
+	MigrateScoresHandler(response, request, clientID)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+
+	var resp map[string]interface{}
+	json.NewDecoder(response.Body).Decode(&resp)
+	assert.Equal(t, float64(0), resp["count"])
+}
+
+func TestMigrateScoresHandlerUnauthorized(t *testing.T) {
+	clientID := "migrate-client-unauth-" + time.Now().Format("20060102150405.000")
+	userID := "migrate-user-unauth-" + time.Now().Format("20060102150405")
+
+	req := MigrateScoresRequest{
+		UserID: userID,
+	}
+
+	body, _ := json.Marshal(req)
+	request := httptest.NewRequest("POST", "/scores/migrate/"+clientID, bytes.NewReader(body))
+	// Intentionally no Authorization header
+	response := httptest.NewRecorder()
+
+	MigrateScoresHandler(response, request, clientID)
+
+	assert.Equal(t, http.StatusUnauthorized, response.Code)
+}
+
+func TestMigrateScoresHandlerUserMismatch(t *testing.T) {
+	clientID := "migrate-client-mismatch-" + time.Now().Format("20060102150405.000")
+	userID := "migrate-user-mismatch-" + time.Now().Format("20060102150405")
+	token, _ := utils.GenerateToken("testuser", userID)
+
+	req := MigrateScoresRequest{
+		UserID: "different-user-id",
+	}
+
+	body, _ := json.Marshal(req)
+	request := httptest.NewRequest("POST", "/scores/migrate/"+clientID, bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+
+	MigrateScoresHandler(response, request, clientID)
+
+	assert.Equal(t, http.StatusForbidden, response.Code)
+}
+
 // Helper function to create a test user
 func createTestUser(t *testing.T) (models.User, string) {
 	return createTestUserWithID(t, "test-user-123")

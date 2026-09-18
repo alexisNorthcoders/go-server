@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"go-server/handlers"
 	"go-server/models"
@@ -26,11 +27,24 @@ func main() {
 	http.HandleFunc("/add-score", logRequest(handlers.AddScoreHandler, "/add-score"))
 	http.HandleFunc("/user-scores", logRequest(handlers.GetUserScoresHandler, "/user-scores"))
 	http.HandleFunc("/high-scores", logRequest(handlers.HighScoresHandler, "/high-scores"))
+	http.HandleFunc("/scores/migrate/", logRequest(migrateScoresRouter, "/scores/migrate"))
 	http.HandleFunc("/scores/", logRequest(handlers.ScoresHandler, "/scores"))
 	http.HandleFunc("/scores", logRequest(handlers.ScoresHandler, "/scores"))
 
 	log.Println("Server running on :8080")
 	http.ListenAndServe(":8080", nil)
+}
+
+func migrateScoresRouter(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
+	if len(parts) < 4 || parts[3] == "" {
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	clientID := parts[3]
+	handlers.MigrateScoresHandler(w, r, clientID)
 }
 
 func logRequest(handler http.HandlerFunc, name string) http.HandlerFunc {
