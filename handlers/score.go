@@ -169,3 +169,44 @@ func GetAnonymousScoresHandler(w http.ResponseWriter, r *http.Request, clientID 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scores)
 }
+
+type MigrateScoresRequest struct {
+	UserID string `json:"userId"`
+}
+
+func MigrateScoresHandler(w http.ResponseWriter, r *http.Request, clientID string) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req MigrateScoresRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := utils.GetUserIDFromToken(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if userID != req.UserID {
+		http.Error(w, "User ID mismatch", http.StatusForbidden)
+		return
+	}
+
+	count, err := models.MigrateScores(clientID, userID)
+	if err != nil {
+		http.Error(w, "Failed to migrate scores", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "Scores migrated successfully",
+		"count":   count,
+	})
+}

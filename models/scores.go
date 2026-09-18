@@ -111,3 +111,15 @@ func GetTopScores(limit int) ([]HighScore, error) {
 	}
 	return scores, nil
 }
+
+func MigrateScores(clientID, userID string) (int64, error) {
+	result, err := DB.Exec(
+		"UPDATE scores SET user_id = ?, client_id = NULL WHERE client_id = ?",
+		userID, clientID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	return count, err
+}
