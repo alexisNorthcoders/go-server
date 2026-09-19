@@ -143,10 +143,14 @@ func AllUsers() ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.ID, &user.Username, &user.Password)
+		// Anonymous users have no username or password.
+		var username, password sql.NullString
+		err := rows.Scan(&user.ID, &username, &password)
 		if err != nil {
 			return nil, err
 		}
+		user.Username = username.String
+		user.Password = password.String
 		users = append(users, user)
 	}
 	return users, nil
