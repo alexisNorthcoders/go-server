@@ -134,7 +134,7 @@ func FindByUsername(username string) (User, error) {
 }
 
 func AllUsers() ([]User, error) {
-	rows, err := DB.Query("SELECT id, username, password FROM users")
+	rows, err := DB.Query("SELECT id, username, password FROM users WHERE username IS NOT NULL")
 	if err != nil {
 		return nil, err
 	}

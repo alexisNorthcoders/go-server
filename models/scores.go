@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,7 +103,6 @@ func GetTopScores(limit int) ([]HighScore, error) {
 		var hs HighScore
 		err := rows.Scan(&hs.Username, &hs.Score, &hs.Timestamp)
 		if err != nil {
-			log.Fatal(err)
 			return nil, err
 		}
 		scores = append(scores, hs)
@@ -117,7 +115,7 @@ func GetLeaderboard(limit int) ([]HighScore, error) {
 		SELECT u.username, s.score, s.timestamp
 		FROM scores s
 		JOIN users u ON s.user_id = u.id
-		WHERE s.user_id IS NOT NULL
+		WHERE s.user_id IS NOT NULL AND u.username IS NOT NULL
 		ORDER BY s.score DESC, s.timestamp DESC
 		LIMIT ?
 	`, limit)
@@ -131,7 +129,6 @@ func GetLeaderboard(limit int) ([]HighScore, error) {
 		var hs HighScore
 		err := rows.Scan(&hs.Username, &hs.Score, &hs.Timestamp)
 		if err != nil {
-			log.Fatal(err)
 			return nil, err
 		}
 		scores = append(scores, hs)
