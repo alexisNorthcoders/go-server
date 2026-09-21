@@ -27,8 +27,7 @@ func InitDB() error {
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
 		username TEXT UNIQUE,
-		password TEXT,
-		is_anonymous INTEGER DEFAULT 0
+		password TEXT
 	);`
 	if _, err = DB.Exec(createUsersTable); err != nil {
 		return err
@@ -62,7 +61,52 @@ func InitDB() error {
 	addClientIDColumn := `ALTER TABLE scores ADD COLUMN client_id TEXT;`
 	DB.Exec(addClientIDColumn) // Ignore error if column already exists
 
+	if err := dropIsAnonymousColumn(); err != nil {
+		return err
+	}
 	return relaxScoresUserIDNotNull()
+}
+
+// dropIsAnonymousColumn purges legacy anonymous user rows and then drops the
+// is_anonymous column. The purge must come first: the column identifies the
+// rows. It is a no-op once the column is gone.
+func dropIsAnonymousColumn() error {
+	rows, err := DB.Query("PRAGMA table_info(users)")
+	if err != nil {
+		return err
+	}
+	hasColumn := false
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, colType string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "is_anonymous" {
+			hasColumn = true
+		}
+	}
+	rows.Close()
+	if !hasColumn {
+		return nil
+	}
+
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`DELETE FROM users WHERE is_anonymous = 1`,
+		`ALTER TABLE users DROP COLUMN is_anonymous`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // relaxScoresUserIDNotNull rebuilds the scores table when an older database
@@ -154,9 +198,4 @@ func AllUsers() ([]User, error) {
 		users = append(users, user)
 	}
 	return users, nil
-}
-
-func CreateAnonymousUser(id string) error {
-	_, err := DB.Exec("INSERT INTO users (id, is_anonymous) VALUES (?, 1)", id)
-	return err
 }
