@@ -20,5 +20,5 @@ jobs:
             git pull origin master
             chmod +x build.sh
             ./build.sh
-            pm2 startOrReload ecosystem.config.cjs
+            pm2 startOrReload ecosystem.config.cjs --only go-server
             pm2 save
