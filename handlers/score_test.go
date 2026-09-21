@@ -314,3 +314,52 @@ func TestAnonymousHandlerCreatesNoUserRow(t *testing.T) {
 	assert.Equal(t, http.StatusOK, sw.Code)
 	assert.Equal(t, before, count())
 }
+
+// exhaustLimit calls do() 10 times expecting success, then expects a 429 with
+// the shared body, then checks a different IP is unaffected.
+func assertRateLimited(t *testing.T, ip string, do func(ip string) *httptest.ResponseRecorder) {
+	t.Helper()
+	for i := 0; i < 10; i++ {
+		assert.NotEqual(t, http.StatusTooManyRequests, do(ip).Code, "request %d", i+1)
+	}
+	resp := do(ip)
+	assert.Equal(t, http.StatusTooManyRequests, resp.Code)
+	assert.Contains(t, resp.Body.String(), "Rate limit exceeded. Maximum 10 submissions per minute.")
+	assert.NotEqual(t, http.StatusTooManyRequests, do(ip+".other").Code)
+}
+
+func TestPostAuthenticatedScoreHandlerRateLimited(t *testing.T) {
+	token, _ := utils.GenerateToken("anonymous", "rl-user-auth")
+	assertRateLimited(t, "203.0.113.10", func(ip string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(AuthenticatedScoreRequest{ClientID: "rl-client", Score: 5})
+		r := httptest.NewRequest("POST", "/scores", bytes.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("X-Forwarded-For", ip+", 10.0.0.1")
+		w := httptest.NewRecorder()
+		PostAuthenticatedScoreHandler(w, r)
+		return w
+	})
+}
+
+func TestAddScoreHandlerRateLimited(t *testing.T) {
+	token, _ := utils.GenerateToken("anonymous", "rl-user-add")
+	assertRateLimited(t, "203.0.113.20", func(ip string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]int{"score": 5})
+		r := httptest.NewRequest("POST", "/add-score", bytes.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("X-Forwarded-For", ip)
+		w := httptest.NewRecorder()
+		AddScoreHandler(w, r)
+		return w
+	})
+}
+
+func TestAnonymousHandlerRateLimited(t *testing.T) {
+	assertRateLimited(t, "203.0.113.30", func(ip string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/anonymous", nil)
+		r.Header.Set("X-Forwarded-For", ip)
+		w := httptest.NewRecorder()
+		AnonymousHandler(w, r)
+		return w
+	})
+}

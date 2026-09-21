@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"go-server/models"
 	"go-server/utils"
@@ -66,7 +67,13 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+var anonymousTokenLimiter = utils.NewRateLimiter(10, 1*time.Minute)
+
 func AnonymousHandler(w http.ResponseWriter, r *http.Request) {
+	if rejectIfRateLimited(w, r, anonymousTokenLimiter) {
+		return
+	}
+
 	userID := uuid.New().String()
 
 	token, err := utils.GenerateToken("anonymous", userID)

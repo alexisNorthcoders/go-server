@@ -12,6 +12,19 @@ import (
 )
 
 var anonymousScoreLimiter = utils.NewRateLimiter(10, 1*time.Minute)
+var authenticatedScoreLimiter = utils.NewRateLimiter(10, 1*time.Minute)
+var addScoreLimiter = utils.NewRateLimiter(10, 1*time.Minute)
+
+// rejectIfRateLimited writes the shared 429 response and returns true when the
+// request's client IP has exceeded the given limiter.
+func rejectIfRateLimited(w http.ResponseWriter, r *http.Request, limiter *utils.RateLimiter) bool {
+	if limiter.Allow(getClientIP(r)) {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	http.Error(w, `{"error":"Rate limit exceeded. Maximum 10 submissions per minute."}`, http.StatusTooManyRequests)
+	return true
+}
 
 type ScoreRequest struct {
 	UserID string `json:"userId"`
@@ -30,6 +43,9 @@ type AnonymousScoreRequest struct {
 }
 
 func AddScoreHandler(w http.ResponseWriter, r *http.Request) {
+	if rejectIfRateLimited(w, r, addScoreLimiter) {
+		return
+	}
 
 	userID, err := utils.GetUserIDFromToken(r)
 	if err != nil {
@@ -127,6 +143,9 @@ func ScoresHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func PostAuthenticatedScoreHandler(w http.ResponseWriter, r *http.Request) {
+	if rejectIfRateLimited(w, r, authenticatedScoreLimiter) {
+		return
+	}
 	var req AuthenticatedScoreRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Score == 0 {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -149,13 +168,8 @@ func PostAuthenticatedScoreHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func PostAnonymousScoreHandler(w http.ResponseWriter, r *http.Request) {
-	// Extract client IP
-	clientIP := getClientIP(r)
-
-	// Check rate limit (10 requests per minute per IP)
-	if !anonymousScoreLimiter.Allow(clientIP) {
-		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, `{"error":"Rate limit exceeded. Maximum 10 submissions per minute."}`, http.StatusTooManyRequests)
+	// Rate limit: 10 requests per minute per IP
+	if rejectIfRateLimited(w, r, anonymousScoreLimiter) {
 		return
 	}
 
