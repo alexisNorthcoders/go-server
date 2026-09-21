@@ -279,3 +279,38 @@ func createTestUserWithID(t *testing.T, id string) (models.User, string) {
 
 	return user, token
 }
+
+func TestAnonymousHandlerCreatesNoUserRow(t *testing.T) {
+	count := func() int {
+		var n int
+		assert.NoError(t, models.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&n))
+		return n
+	}
+	before := count()
+
+	response := httptest.NewRecorder()
+	AnonymousHandler(response, httptest.NewRequest("POST", "/anonymous", nil))
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, before, count())
+
+	var resp map[string]string
+	assert.NoError(t, json.NewDecoder(response.Body).Decode(&resp))
+	assert.Equal(t, "Anonymous login successful!", resp["message"])
+	assert.NotEmpty(t, resp["userId"])
+	token := resp["accessToken"]
+	assert.NotEmpty(t, token)
+
+	verify := httptest.NewRequest("POST", "/verify-token", nil)
+	verify.Header.Set("Authorization", "Bearer "+token)
+	vr := httptest.NewRecorder()
+	ValidateHandler(vr, verify)
+	assert.Equal(t, http.StatusOK, vr.Code)
+
+	body, _ := json.Marshal(AuthenticatedScoreRequest{Token: token, ClientID: "anon-token-client", Score: 42})
+	sr := httptest.NewRequest("POST", "/scores", bytes.NewReader(body))
+	sr.Header.Set("Authorization", "Bearer "+token)
+	sw := httptest.NewRecorder()
+	PostAuthenticatedScoreHandler(sw, sr)
+	assert.Equal(t, http.StatusOK, sw.Code)
+	assert.Equal(t, before, count())
+}
