@@ -35,11 +35,23 @@ type AuthenticatedScoreRequest struct {
 	Token    string `json:"token"`
 	ClientID string `json:"clientId"`
 	Score    int    `json:"score"`
+	Mode     string `json:"mode"`
 }
 
 type AnonymousScoreRequest struct {
 	ClientID string `json:"clientId"`
 	Score    int    `json:"score"`
+	Mode     string `json:"mode"`
+}
+
+// parseModeOrReject writes a 400 and returns false when s is not a known game
+// mode. Every endpoint that saves or ranks scores requires one.
+func parseModeOrReject(w http.ResponseWriter, s string) (models.Mode, bool) {
+	mode, ok := models.ParseMode(s)
+	if !ok {
+		http.Error(w, "Invalid mode: must be timed or endless", http.StatusBadRequest)
+	}
+	return mode, ok
 }
 
 func AddScoreHandler(w http.ResponseWriter, r *http.Request) {
@@ -54,14 +66,19 @@ func AddScoreHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Score int `json:"score"`
+		Score int    `json:"score"`
+		Mode  string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Score == 0 {
 		http.Error(w, "Invalid score", http.StatusBadRequest)
 		return
 	}
+	mode, ok := parseModeOrReject(w, req.Mode)
+	if !ok {
+		return
+	}
 
-	if err := models.AddScore(userID, req.Score); err != nil {
+	if err := models.AddScore(userID, mode, req.Score); err != nil {
 		http.Error(w, "Failed to add score", http.StatusInternalServerError)
 		return
 	}
@@ -86,7 +103,11 @@ func GetUserScoresHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func HighScoresHandler(w http.ResponseWriter, r *http.Request) {
-	scores, err := models.GetTopScores(20)
+	mode, ok := parseModeOrReject(w, r.URL.Query().Get("mode"))
+	if !ok {
+		return
+	}
+	scores, err := models.GetTopScores(mode, 20)
 	if err != nil {
 		http.Error(w, "Failed to get high scores", http.StatusInternalServerError)
 		return
@@ -97,7 +118,11 @@ func HighScoresHandler(w http.ResponseWriter, r *http.Request) {
 
 func LeaderboardHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	scores, err := models.GetLeaderboard(100)
+	mode, ok := parseModeOrReject(w, r.URL.Query().Get("mode"))
+	if !ok {
+		return
+	}
+	scores, err := models.GetLeaderboard(mode, 100)
 	if err != nil {
 		http.Error(w, "Failed to get leaderboard", http.StatusInternalServerError)
 		return
@@ -157,8 +182,12 @@ func PostAuthenticatedScoreHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
+	mode, ok := parseModeOrReject(w, req.Mode)
+	if !ok {
+		return
+	}
 
-	if err := models.AddScoreWithClientID(userID, req.ClientID, req.Score); err != nil {
+	if err := models.AddScoreWithClientID(userID, req.ClientID, mode, req.Score); err != nil {
 		http.Error(w, "Failed to add score", http.StatusInternalServerError)
 		return
 	}
@@ -178,8 +207,12 @@ func PostAnonymousScoreHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	mode, ok := parseModeOrReject(w, req.Mode)
+	if !ok {
+		return
+	}
 
-	if err := models.AddAnonymousScore(req.ClientID, req.Score); err != nil {
+	if err := models.AddAnonymousScore(req.ClientID, mode, req.Score); err != nil {
 		log.Printf("AddAnonymousScore failed: %v", err)
 		http.Error(w, "Failed to add score", http.StatusInternalServerError)
 		return
