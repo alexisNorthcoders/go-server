@@ -39,6 +39,7 @@ func InitDB() error {
 		user_id TEXT,
 		client_id TEXT,
 		score INTEGER NOT NULL,
+		mode TEXT NOT NULL DEFAULT 'endless',
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY(user_id) REFERENCES users(id)
 	);`
@@ -64,7 +65,37 @@ func InitDB() error {
 	if err := dropIsAnonymousColumn(); err != nil {
 		return err
 	}
-	return relaxScoresUserIDNotNull()
+	if err := relaxScoresUserIDNotNull(); err != nil {
+		return err
+	}
+	return addScoresModeColumn()
+}
+
+// addScoresModeColumn adds the game mode to databases created before scores
+// carried one. Every existing score was played in endless mode. It runs after
+// relaxScoresUserIDNotNull, whose table rebuild does not carry the column.
+func addScoresModeColumn() error {
+	rows, err := DB.Query("PRAGMA table_info(scores)")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, colType string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "mode" {
+			rows.Close()
+			return nil
+		}
+	}
+	rows.Close()
+
+	_, err = DB.Exec(`ALTER TABLE scores ADD COLUMN mode TEXT NOT NULL DEFAULT 'endless'`)
+	return err
 }
 
 // dropIsAnonymousColumn purges legacy anonymous user rows and then drops the

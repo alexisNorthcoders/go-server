@@ -27,6 +27,7 @@ func TestPostAuthenticatedScoreHandler(t *testing.T) {
 		Token:    token,
 		ClientID: "test-client-1",
 		Score:    100,
+		Mode:     "timed",
 	}
 
 	body, _ := json.Marshal(req)
@@ -55,6 +56,7 @@ func TestPostAnonymousScoreHandler(t *testing.T) {
 	req := AnonymousScoreRequest{
 		ClientID: clientID,
 		Score:    150,
+		Mode:     "endless",
 	}
 
 	body, _ := json.Marshal(req)
@@ -80,8 +82,8 @@ func TestGetUserScoresWithPathHandler(t *testing.T) {
 	userID := "test-user-path-" + time.Now().Format("20060102150405.000")
 
 	// Add some test scores
-	models.AddScore(userID, 100)
-	models.AddScore(userID, 200)
+	models.AddScore(userID, models.ModeEndless, 100)
+	models.AddScore(userID, models.ModeEndless, 200)
 
 	request := httptest.NewRequest("GET", "/scores/"+userID, nil)
 	response := httptest.NewRecorder()
@@ -107,8 +109,8 @@ func TestGetAnonymousScoresHandler(t *testing.T) {
 	clientID := "anon-client-test-" + time.Now().Format("20060102150405.000")
 
 	// Add some test scores
-	models.AddAnonymousScore(clientID, 50)
-	models.AddAnonymousScore(clientID, 75)
+	models.AddAnonymousScore(clientID, models.ModeEndless, 50)
+	models.AddAnonymousScore(clientID, models.ModeEndless, 75)
 
 	request := httptest.NewRequest("GET", "/scores/anonymous/"+clientID, nil)
 	response := httptest.NewRecorder()
@@ -141,6 +143,7 @@ func TestPostAuthenticatedScoreHandlerInvalidRequest(t *testing.T) {
 func TestPostAnonymousScoreHandlerMissingClientID(t *testing.T) {
 	req := AnonymousScoreRequest{
 		Score: 100,
+		Mode:  "endless",
 	}
 
 	body, _ := json.Marshal(req)
@@ -158,8 +161,8 @@ func TestMigrateScoresHandler(t *testing.T) {
 	token, _ := utils.GenerateToken("testuser", userID)
 
 	// Add some anonymous scores
-	models.AddAnonymousScore(clientID, 100)
-	models.AddAnonymousScore(clientID, 200)
+	models.AddAnonymousScore(clientID, models.ModeEndless, 100)
+	models.AddAnonymousScore(clientID, models.ModeEndless, 200)
 
 	// Verify anonymous scores exist
 	anonScores, _ := models.GetAnonymousScoresForClient(clientID)
@@ -306,7 +309,7 @@ func TestAnonymousHandlerCreatesNoUserRow(t *testing.T) {
 	ValidateHandler(vr, verify)
 	assert.Equal(t, http.StatusOK, vr.Code)
 
-	body, _ := json.Marshal(AuthenticatedScoreRequest{Token: token, ClientID: "anon-token-client", Score: 42})
+	body, _ := json.Marshal(AuthenticatedScoreRequest{Token: token, ClientID: "anon-token-client", Score: 42, Mode: "endless"})
 	sr := httptest.NewRequest("POST", "/scores", bytes.NewReader(body))
 	sr.Header.Set("Authorization", "Bearer "+token)
 	sw := httptest.NewRecorder()
@@ -331,7 +334,7 @@ func assertRateLimited(t *testing.T, ip string, do func(ip string) *httptest.Res
 func TestPostAuthenticatedScoreHandlerRateLimited(t *testing.T) {
 	token, _ := utils.GenerateToken("anonymous", "rl-user-auth")
 	assertRateLimited(t, "203.0.113.10", func(ip string) *httptest.ResponseRecorder {
-		body, _ := json.Marshal(AuthenticatedScoreRequest{ClientID: "rl-client", Score: 5})
+		body, _ := json.Marshal(AuthenticatedScoreRequest{ClientID: "rl-client", Score: 5, Mode: "endless"})
 		r := httptest.NewRequest("POST", "/scores", bytes.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+token)
 		r.Header.Set("X-Forwarded-For", ip+", 10.0.0.1")
@@ -344,7 +347,7 @@ func TestPostAuthenticatedScoreHandlerRateLimited(t *testing.T) {
 func TestAddScoreHandlerRateLimited(t *testing.T) {
 	token, _ := utils.GenerateToken("anonymous", "rl-user-add")
 	assertRateLimited(t, "203.0.113.20", func(ip string) *httptest.ResponseRecorder {
-		body, _ := json.Marshal(map[string]int{"score": 5})
+		body, _ := json.Marshal(map[string]any{"score": 5, "mode": "endless"})
 		r := httptest.NewRequest("POST", "/add-score", bytes.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+token)
 		r.Header.Set("X-Forwarded-For", ip)
