@@ -180,3 +180,31 @@ func TestParseMode(t *testing.T) {
 		}
 	}
 }
+
+func TestInitDBAddsBotResultsTableToExistingDatabase(t *testing.T) {
+	inTempDir(t)
+	legacy, err := sql.Open("sqlite3", "./users.db")
+	assert.NoError(t, err)
+	for _, stmt := range []string{
+		`CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT UNIQUE, password TEXT)`,
+		`CREATE TABLE scores (id TEXT PRIMARY KEY, user_id TEXT, client_id TEXT, score INTEGER NOT NULL, mode TEXT NOT NULL DEFAULT 'endless', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+		`INSERT INTO scores (id, user_id, score) VALUES ('s1', 'u1', 100)`,
+	} {
+		_, err := legacy.Exec(stmt)
+		assert.NoError(t, err)
+	}
+	legacy.Close()
+
+	assert.NoError(t, InitDB())
+	assert.NoError(t, AddBotResult(BotResult{ResultID: "r1", BotID: "rookie", Mode: ModeTimed, Delay: 1, Outcome: OutcomeWin}))
+
+	// Second boot keeps the data.
+	DB.Close()
+	assert.NoError(t, InitDB())
+	recs, err := GetBotRecords("")
+	assert.NoError(t, err)
+	assert.Equal(t, BotRecord{Wins: 1}, recs["rookie"][ModeTimed])
+	var n int
+	assert.NoError(t, DB.QueryRow("SELECT COUNT(*) FROM scores").Scan(&n))
+	assert.Equal(t, 1, n)
+}

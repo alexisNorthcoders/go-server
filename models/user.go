@@ -58,6 +58,19 @@ func InitDB() error {
 		return err
 	}
 
+	createBotResultsTable := `
+	CREATE TABLE IF NOT EXISTS bot_results (
+		result_id TEXT PRIMARY KEY,
+		bot_id TEXT NOT NULL,
+		mode TEXT NOT NULL,
+		delay INTEGER NOT NULL,
+		outcome TEXT NOT NULL,
+		recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);`
+	if _, err = DB.Exec(createBotResultsTable); err != nil {
+		return err
+	}
+
 	// Add client_id column if it doesn't exist (for existing databases)
 	addClientIDColumn := `ALTER TABLE scores ADD COLUMN client_id TEXT;`
 	DB.Exec(addClientIDColumn) // Ignore error if column already exists
