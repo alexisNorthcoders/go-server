@@ -5,6 +5,7 @@ module.exports = {
     cwd: __dirname,
     env_production: {
       DATABASE_SECRET: process.env.DATABASE_SECRET,
+      BOT_RESULTS_SECRET: process.env.BOT_RESULTS_SECRET,
     },
   }, {
     name: "go-server-dev",

@@ -19,6 +19,10 @@ func main() {
 	}
 	defer models.DB.Close()
 
+	if !handlers.BotResultsSecretConfigured() {
+		log.Println("BOT_RESULTS_SECRET is not set: POST /bot-results will refuse every report")
+	}
+
 	http.HandleFunc("/register", logRequest(handlers.RegisterHandler, "/register"))
 	http.HandleFunc("/login", logRequest(handlers.LoginHandler, "/login"))
 	http.HandleFunc("/anonymous", logRequest(handlers.AnonymousHandler, "/anonymous"))
@@ -28,6 +32,8 @@ func main() {
 	http.HandleFunc("/user-scores", logRequest(handlers.GetUserScoresHandler, "/user-scores"))
 	http.HandleFunc("/high-scores", logRequest(handlers.HighScoresHandler, "/high-scores"))
 	http.HandleFunc("/leaderboard", logRequest(handlers.LeaderboardHandler, "/leaderboard"))
+	http.HandleFunc("/bot-results", logRequest(handlers.PostBotResultHandler, "/bot-results"))
+	http.HandleFunc("/bot-records", logRequest(handlers.BotRecordsHandler, "/bot-records"))
 	http.HandleFunc("/appearance", logRequest(handlers.AppearanceHandler, "/appearance"))
 	http.HandleFunc("/scores/migrate/", logRequest(migrateScoresRouter, "/scores/migrate"))
 	http.HandleFunc("/scores/", logRequest(handlers.ScoresHandler, "/scores"))

@@ -151,6 +151,53 @@ Authorization: Bearer <your_token>
 
 ---
 
+### `POST /bot-results`
+
+Records the result of a finished vs-bot round. Called by the game server (snake-colyseus), never by a player. Requires the secret both servers share, set in the `BOT_RESULTS_SECRET` environment variable (passed through `ecosystem.config.cjs` in production). If the variable is not set, every report is refused and go-server logs that at start-up.
+
+**Headers:**
+
+```
+Authorization: Bearer <BOT_RESULTS_SECRET>
+```
+
+**Request Body:**
+
+```json
+{
+  "resultId": "unique-per-round",
+  "botId": "rookie",
+  "mode": "timed",
+  "delay": 2,
+  "outcome": "win"
+}
+```
+
+- `resultId`: unique per round. Reporting it twice stores it once, and the second report still succeeds.
+- `botId`: a short slug (lowercase letters, digits, `-`, `_`, up to 40 characters). Not checked against the roster.
+- `mode`: `timed` or `endless`.
+- `delay`: the bot's reaction delay, 0 to 4.
+- `outcome`: `win`, `loss` or `draw`, from the **bot's** side.
+
+**Responses:** `200` recorded, `400` bad body, `401` wrong, missing or unconfigured secret.
+
+---
+
+### `GET /bot-records`
+
+Public. Returns each bot's record against humans, per mode. Bots and modes with no results are absent. `?botId=rookie` narrows it to one bot.
+
+```json
+{
+  "rookie": {
+    "timed": { "wins": 3, "losses": 5, "draws": 1 },
+    "endless": { "wins": 0, "losses": 2, "draws": 0 }
+  }
+}
+```
+
+---
+
 ## Project Structure
 
 ```bash
