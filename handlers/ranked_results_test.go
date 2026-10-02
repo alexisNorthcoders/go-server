@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -144,9 +145,17 @@ func TestRankedDuplicateResultIDAppliedOnce(t *testing.T) {
 func TestRankedProvisionalUntilFifthMatch(t *testing.T) {
 	rankedSetup(t)
 	for i := 1; i <= 5; i++ {
-		_, resp := reportRanked(t, rankedBody(map[string]any{"resultId": string(rune('a' + i))}), botSecret)
-		assert.Equal(t, i, resp.Players[0].RankedMatches)
-		assert.Equal(t, i < 5, resp.Players[0].Provisional, "match %d", i)
+		_, resp := reportRanked(t, rankedBody(map[string]any{"resultId": fmt.Sprintf("match-%d", i)}), botSecret)
+		assert.Len(t, resp.Players, 2)
+		for _, p := range resp.Players {
+			assert.Equal(t, i, p.RankedMatches, "match %d", i)
+			assert.Equal(t, i < 5, p.Provisional, "match %d", i)
+		}
+		if i == 5 {
+			for _, p := range resp.Players {
+				assert.False(t, p.Provisional, "%s after 5th match", p.AccountID)
+			}
+		}
 	}
 	assert.False(t, ratingOf(t, "alice").Provisional)
 }

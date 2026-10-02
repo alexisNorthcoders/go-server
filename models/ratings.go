@@ -118,6 +118,13 @@ func RecordRankedResult(res RankedResult) (RankedResponse, error) {
 		return RankedResponse{}, ErrBadSides
 	}
 
+	// Outcome names the winner; a Forfeit is a loss for the other side, so it
+	// needs a decisive Outcome.
+	if res.Outcome != "a" && res.Outcome != "b" && res.Outcome != "draw" ||
+		res.Forfeit && res.Outcome == "draw" {
+		return RankedResponse{}, ErrBadSides
+	}
+
 	tx, err := DB.Begin()
 	if err != nil {
 		return RankedResponse{}, err
