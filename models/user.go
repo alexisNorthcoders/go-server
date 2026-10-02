@@ -71,6 +71,29 @@ func InitDB() error {
 		return err
 	}
 
+	createRatingsTable := `
+	CREATE TABLE IF NOT EXISTS ratings (
+		user_id TEXT PRIMARY KEY,
+		rating REAL NOT NULL,
+		rd REAL NOT NULL,
+		sigma REAL NOT NULL,
+		ranked_matches INTEGER NOT NULL DEFAULT 0,
+		FOREIGN KEY(user_id) REFERENCES users(id)
+	);`
+	if _, err = DB.Exec(createRatingsTable); err != nil {
+		return err
+	}
+
+	createRankedResultsTable := `
+	CREATE TABLE IF NOT EXISTS ranked_results (
+		result_id TEXT PRIMARY KEY,
+		response TEXT NOT NULL,
+		recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);`
+	if _, err = DB.Exec(createRankedResultsTable); err != nil {
+		return err
+	}
+
 	// Add client_id column if it doesn't exist (for existing databases)
 	addClientIDColumn := `ALTER TABLE scores ADD COLUMN client_id TEXT;`
 	DB.Exec(addClientIDColumn) // Ignore error if column already exists

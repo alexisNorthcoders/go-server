@@ -34,6 +34,8 @@ func main() {
 	http.HandleFunc("/leaderboard", logRequest(handlers.LeaderboardHandler, "/leaderboard"))
 	http.HandleFunc("/bot-results", logRequest(handlers.PostBotResultHandler, "/bot-results"))
 	http.HandleFunc("/bot-records", logRequest(handlers.BotRecordsHandler, "/bot-records"))
+	http.HandleFunc("/ranked-results", logRequest(handlers.PostRankedResultHandler, "/ranked-results"))
+	http.HandleFunc("/rating", logRequest(handlers.RatingHandler, "/rating"))
 	http.HandleFunc("/appearance", logRequest(handlers.AppearanceHandler, "/appearance"))
 	http.HandleFunc("/scores/migrate/", logRequest(migrateScoresRouter, "/scores/migrate"))
 	http.HandleFunc("/scores/", logRequest(handlers.ScoresHandler, "/scores"))
