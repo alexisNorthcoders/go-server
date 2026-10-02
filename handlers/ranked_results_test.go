@@ -206,3 +206,55 @@ func TestVerifyTokenSaysAccountOrGuest(t *testing.T) {
 	assert.Equal(t, "account", kind(account))
 	assert.Equal(t, "guest", kind(guest))
 }
+
+func getRatingLeaderboard(t *testing.T) []models.RatingRow {
+	w := httptest.NewRecorder()
+	RatingLeaderboardHandler(w, httptest.NewRequest("GET", "/rating-leaderboard", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	var rows []models.RatingRow
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &rows))
+	return rows
+}
+
+func TestRatingLeaderboardOrdersByRatingAndHidesProvisional(t *testing.T) {
+	rankedSetup(t)
+	addUser(t, "carol")
+	// alice beats bob 5 times; both reach 5 matches. carol has played none.
+	for i := 0; i < models.ProvisionalMatches; i++ {
+		if i > 0 {
+			rows := getRatingLeaderboard(t)
+			assert.Empty(t, rows, "provisional accounts are left out")
+		}
+		w, _ := reportRanked(t, rankedBody(map[string]any{"resultId": fmt.Sprintf("m%d", i)}), botSecret)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+	rows := getRatingLeaderboard(t)
+	assert.Len(t, rows, 2)
+	assert.Equal(t, "name-alice", rows[0].Username)
+	assert.Equal(t, "name-bob", rows[1].Username)
+	assert.Greater(t, rows[0].Rating, rows[1].Rating)
+	assert.Equal(t, models.ProvisionalMatches, rows[0].RankedMatches)
+}
+
+func TestRatingLeaderboardOmitsStandIns(t *testing.T) {
+	rankedSetup(t)
+	for i := 0; i < models.ProvisionalMatches; i++ {
+		body := rankedBody(map[string]any{
+			"resultId": fmt.Sprintf("s%d", i),
+			"b":        map[string]any{"standInId": "rookie", "rating": 1500},
+		})
+		w, _ := reportRanked(t, body, botSecret)
+		assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	}
+	rows := getRatingLeaderboard(t)
+	assert.Len(t, rows, 1)
+	assert.Equal(t, "name-alice", rows[0].Username)
+}
+
+func TestRatingLeaderboardEmptyIsList(t *testing.T) {
+	freshDB(t)
+	w := httptest.NewRecorder()
+	RatingLeaderboardHandler(w, httptest.NewRequest("GET", "/rating-leaderboard", nil))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.JSONEq(t, "[]", w.Body.String())
+}

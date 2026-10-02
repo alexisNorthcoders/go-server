@@ -117,3 +117,18 @@ func RatingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(rating)
 }
+
+// RatingLeaderboardHandler lists Accounts by Rating, highest first. It needs no token.
+func RatingLeaderboardHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	rows, err := models.RatingLeaderboard()
+	if err != nil {
+		http.Error(w, "Failed to get rating leaderboard", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(rows)
+}
