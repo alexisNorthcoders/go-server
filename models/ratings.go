@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 
 	glicko "github.com/zelenin/go-glicko2"
 )
@@ -204,4 +205,35 @@ func RecordRankedResult(res RankedResult) (RankedResponse, error) {
 		return RankedResponse{}, err
 	}
 	return resp, tx.Commit()
+}
+
+// RatingRow is one line of the Rating leaderboard.
+type RatingRow struct {
+	Username      string `json:"username"`
+	Rating        int    `json:"rating"`
+	RankedMatches int    `json:"rankedMatches"`
+}
+
+// RatingLeaderboard lists Accounts by Rating, highest first. Provisional
+// Accounts are left out; Stand-ins have no stored Rating so never appear.
+func RatingLeaderboard() ([]RatingRow, error) {
+	rows, err := DB.Query(`SELECT u.username, r.rating, r.ranked_matches
+		FROM ratings r JOIN users u ON u.id = r.user_id
+		WHERE r.ranked_matches >= ?
+		ORDER BY r.rating DESC, r.ranked_matches DESC, u.username ASC`, ProvisionalMatches)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RatingRow{}
+	for rows.Next() {
+		var row RatingRow
+		var rating float64
+		if err := rows.Scan(&row.Username, &rating, &row.RankedMatches); err != nil {
+			return nil, err
+		}
+		row.Rating = int(math.Round(rating))
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
