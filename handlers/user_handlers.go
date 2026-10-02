@@ -122,10 +122,24 @@ func ValidateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A Guest token carries the username "anonymous", but the reliable test is
+	// whether the userId is a registered user.
+	userID, _ := claims["userId"].(string)
+	isAccount, err := models.IsAccount(userID)
+	if err != nil {
+		http.Error(w, "Failed to verify token", http.StatusInternalServerError)
+		return
+	}
+	kind := "guest"
+	if isAccount {
+		kind = "account"
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message":   "Token is valid",
 		"user":      claims["user"],
 		"userId":    claims["userId"],
+		"kind":      kind,
 		"expiresIn": claims["exp"],
 	})
 }
