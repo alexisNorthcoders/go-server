@@ -1,0 +1,377 @@
+openapi: 3.0.0
+info:
+  title: Pi API
+  description: The endpoints go-server took over from the Raspberry Pi's old Node webserver.
+  version: 1.0.0
+servers:
+  - url: http://raspberrypi.local:8080
+    description: Raspberry Pi
+
+paths:
+  /system-info:
+    post:
+      summary: Post Raspberry Pi System Health Info
+      description: Local only. Called by pi_health every minute. Records the system health information of the Raspberry Pi, including temperature, CPU usage, memory usage, disk usage, and disk activity.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - temperature
+                - cpuUsage
+                - memoryUsage
+                - diskUsage
+                - diskActivity
+              properties:
+                temperature:
+                  description: CPU temperature, stored as sent
+                  example: "51.0°C"
+                cpuUsage:
+                  description: CPU usage, stored as sent
+                  example: "2%"
+                memoryUsage:
+                  type: object
+                  properties:
+                    usedMemory: { type: number, example: 2387.45 }
+                    totalMemory: { type: number, example: 4045 }
+                diskUsage:
+                  type: object
+                  properties:
+                    used: { type: string, example: "29G" }
+                    available: { type: string, example: "194G" }
+                diskActivity:
+                  type: object
+                  properties:
+                    readSpeed: { type: number, example: 0 }
+                    writeSpeed: { type: number, example: 0 }
+      responses:
+        '201':
+          description: Record added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Record added successfully"
+                  recordId:
+                    type: integer
+                    example: 42
+        '400':
+          description: Bad request - Missing required fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Missing required fields"
+        '500':
+          description: Internal server error - Failed to insert record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to insert record"
+  /system-info/{limit}:
+    get:
+      summary: Get system info records with path parameter
+      description: Retrieves the last N system records. The limit can be provided as a path parameter.
+      parameters:
+        - name: limit
+          in: path
+          description: Number of records to retrieve
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Successful response with system records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - timestamp
+                    - temperature
+                    - cpu_usage
+                    - memory_used
+                    - memory_total
+                    - disk_used
+                    - disk_available
+                    - disk_read_speed
+                    - disk_write_speed
+                  properties:
+                    id:
+                      type: integer
+                      nullable: true
+                      description: Unique record ID (null if not assigned)
+                      example: null
+                    timestamp:
+                      type: string
+                      format: date-time
+                      description: Timestamp of the record
+                      example: "2025-02-13 22:15:01"
+                    temperature:
+                      type: string
+                      description: CPU temperature with unit (°C)
+                      example: "51.0°C"
+                    cpu_usage:
+                      type: string
+                      description: CPU usage percentage
+                      example: "2%"
+                    memory_used:
+                      type: number
+                      description: Used memory in MB
+                      example: 2387.45
+                    memory_total:
+                      type: number
+                      description: Total memory in MB
+                      example: 4045
+                    disk_used:
+                      type: string
+                      description: Used disk space
+                      example: "29G"
+                    disk_available:
+                      type: string
+                      description: Available disk space
+                      example: "194G"
+                    disk_read_speed:
+                      type: number
+                      description: Disk read speed in MB/s
+                      example: 0
+                    disk_write_speed:
+                      type: number
+                      description: Disk write speed in MB/s
+                      example: 0
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /system-info/sse:
+    get:
+      summary: Stream Raspberry Pi System Health Info
+      description: Streams the latest system health information of the Raspberry Pi over SSE. Clients can specify a limit on the number of records to receive.
+      parameters:
+        - name: limit
+          in: query
+          description: The number of records to stream (defaults to 60)
+          required: false
+          schema:
+            type: integer
+            default: 60
+            example: 60
+      responses:
+        '200':
+          description: Stream of system health records
+          content:
+            text/event-stream:
+               schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - timestamp
+                    - temperature
+                    - cpu_usage
+                    - memory_used
+                    - memory_total
+                    - disk_used
+                    - disk_available
+                    - disk_read_speed
+                    - disk_write_speed
+                  properties:
+                    id:
+                      type: integer
+                      nullable: true
+                      description: Unique record ID (null if not assigned)
+                      example: null
+                    timestamp:
+                      type: string
+                      format: date-time
+                      description: Timestamp of the record
+                      example: "2025-02-13 22:15:01"
+                    temperature:
+                      type: string
+                      description: CPU temperature with unit (°C)
+                      example: "51.0°C"
+                    cpu_usage:
+                      type: string
+                      description: CPU usage percentage
+                      example: "2%"
+                    memory_used:
+                      type: number
+                      description: Used memory in MB
+                      example: 2387.45
+                    memory_total:
+                      type: number
+                      description: Total memory in MB
+                      example: 4045
+                    disk_used:
+                      type: string
+                      description: Used disk space
+                      example: "29G"
+                    disk_available:
+                      type: string
+                      description: Available disk space
+                      example: "194G"
+                    disk_read_speed:
+                      type: number
+                      description: Disk read speed in MB/s
+                      example: 0
+                    disk_write_speed:
+                      type: number
+                      description: Disk write speed in MB/s
+                      example: 0
+        '500':
+          description: Internal server error - Failed to retrieve records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Failed to retrieve records"
+  /zigzag/score:
+    post:
+      summary: Add Zigzag Game Highscore
+      description: Accepts the score of the Zigzag game and adds it to the highscore list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - score
+              properties:
+                score:
+                  type: integer
+                  description: The score to be added to the highscore list
+                  example: 250
+      responses:
+        '201':
+          description: Highscore added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Highscore added: 250"
+        '400':
+          description: Bad request - Score is required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Score is required"
+        '500':
+          description: Internal server error - Error adding score
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Error adding score"
+    get:
+      summary: Get the top 10 Zigzag scores
+      description: Returns the 10 best scores in ascending order, so the high score is last.
+      responses:
+        "200":
+          description: Successful response with the last 10 high scores.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    score:
+                      type: integer
+                      example: 19134
+                    timestamp:
+                      type: string
+                      format: date-time
+                      example: "2025-01-25T10:35:25.524Z"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /amazon-prices:
+    post:
+      summary: Record an Amazon price
+      description: Local only. Called by amazon-scraper.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, title, price, timestamp]
+              properties:
+                url: { type: string, example: "https://www.amazon.co.uk/dp/B01D8KOZF4" }
+                title: { type: string, example: "ELEGOO UNO R3 Project Super Starter Kit" }
+                price: { type: string, example: "£42.99" }
+                timestamp: { type: string, format: date-time, example: "2026-09-06T10:34:33.896Z" }
+      responses:
+        '201':
+          description: Price recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: "Price recorded" }
+                  id: { type: integer, example: 94795 }
+        '400': { description: Missing required fields }
+        '403': { description: Not called from this machine }
+        '500': { description: Failed to insert price record }
+  /amazon-prices/last:
+    get:
+      summary: Get the last recorded price for a product
+      description: Local only.
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The newest price, or null when none is recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string }
+                  lastPrice: { type: string, nullable: true, example: "£42.99" }
+        '400': { description: Missing URL }
+        '403': { description: Not called from this machine }
+        '500': { description: Failed to get last price }

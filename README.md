@@ -198,6 +198,35 @@ Public. Returns each bot's record against humans, per mode. Bots and modes with 
 
 ---
 
+## Raspberry Pi endpoints
+
+These took over from the Pi's old Node webserver. They are off unless `PI_ENDPOINTS=true`, which only `go-server-dev` (the Pi's instance) sets in `ecosystem.config.cjs`, so the VPS never serves them. Their tables are created everywhere but stay empty elsewhere. Swagger UI for them is at `/api-docs/`.
+
+| Endpoint | Who calls it | Notes |
+|---|---|---|
+| `POST /system-info` | pi_health, every minute | Local only. Stores the reading as sent, units included (`"70.8°C"`). |
+| `GET /system-info/{limit}` | | Newest readings first. The limit defaults to 60, and the most is 10080 (a week). |
+| `GET /system-info/sse?limit=` | monitor-canvas | The same readings as server-sent events, once at connect and then every minute. |
+| `POST /amazon-prices` | amazon-scraper | Local only. |
+| `GET /amazon-prices/last?url=` | amazon-scraper | Local only. `lastPrice` is `null` when nothing is recorded. |
+| `POST /zigzag/score` | zigzag game | Only accepted from `http://raspberrypi.local` or `https://alexisraspberry.duckdns.org` (Origin or Referer). |
+| `GET /zigzag/score` | zigzag game | The top 10 scores in ascending order: the last one is the high score. |
+
+"Local only" means the request came straight from the machine itself (loopback or one of its own addresses), not through nginx.
+
+The game pages (`/zigzag/`, `/kings-and-pigs/`, `/monitor-canvas/`) are static files served by nginx: see `docs/deploy/nginx-pi.conf` (in `/etc/nginx/snippets/pi-games.conf`) and `docs/deploy/nginx-extra-mime-types.conf` (in `/etc/nginx/conf.d/`, so `.mjs` modules load).
+
+### Moving the old webserver's data
+
+`cmd/import-webserver` copies the webserver's data into `users.db` once: `system_info` and `amazon_prices` from its SQLite database, and the zigzag scores from Redis on stdin. Running it again copies nothing twice.
+
+```bash
+redis-cli ZRANGE user:zigzag_highscore:scores 0 -1 WITHSCORES \
+  | go run ./cmd/import-webserver -from ../clipboard/DB/database.sqlite
+```
+
+---
+
 ## Project Structure
 
 ```bash
