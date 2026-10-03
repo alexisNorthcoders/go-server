@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"go-server/handlers"
@@ -41,9 +42,27 @@ func main() {
 	http.HandleFunc("/scores/migrate/", logRequest(migrateScoresRouter, "/scores/migrate"))
 	http.HandleFunc("/scores/", logRequest(handlers.ScoresHandler, "/scores"))
 	http.HandleFunc("/scores", logRequest(handlers.ScoresHandler, "/scores"))
+	if os.Getenv("PI_ENDPOINTS") == "true" {
+		registerPiRoutes()
+		log.Println("Pi endpoints enabled")
+	}
 
 	log.Println("Server running on :8080")
 	http.ListenAndServe(":8080", nil)
+}
+
+// registerPiRoutes adds the endpoints taken over from the Raspberry Pi's old
+// Node webserver. Only the Pi sets PI_ENDPOINTS, so the VPS never serves them.
+// The static game pages are served by nginx.
+func registerPiRoutes() {
+	http.HandleFunc("POST /system-info", logRequest(handlers.LocalOnly(handlers.PostSystemInfoHandler), "/system-info"))
+	http.HandleFunc("GET /system-info/sse", logRequest(handlers.SystemInfoStreamHandler, "/system-info/sse"))
+	http.HandleFunc("GET /system-info/{limit}", logRequest(handlers.SystemInfoHandler, "/system-info/{limit}"))
+	http.HandleFunc("POST /amazon-prices", logRequest(handlers.LocalOnly(handlers.PostAmazonPriceHandler), "/amazon-prices"))
+	http.HandleFunc("GET /amazon-prices/last", logRequest(handlers.LocalOnly(handlers.LastAmazonPriceHandler), "/amazon-prices/last"))
+	http.HandleFunc("POST /zigzag/score", logRequest(handlers.PostZigzagScoreHandler, "/zigzag/score"))
+	http.HandleFunc("GET /zigzag/score", logRequest(handlers.ZigzagScoresHandler, "/zigzag/score"))
+	http.Handle("GET /api-docs/", handlers.APIDocsHandler())
 }
 
 func migrateScoresRouter(w http.ResponseWriter, r *http.Request) {

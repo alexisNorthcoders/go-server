@@ -94,6 +94,10 @@ func InitDB() error {
 		return err
 	}
 
+	if err := createPiTables(); err != nil {
+		return err
+	}
+
 	// Add client_id column if it doesn't exist (for existing databases)
 	addClientIDColumn := `ALTER TABLE scores ADD COLUMN client_id TEXT;`
 	DB.Exec(addClientIDColumn) // Ignore error if column already exists

@@ -16,6 +16,9 @@ module.exports = {
     watch: false,
     env: {
       PATH: `/usr/local/go/bin:${process.env.HOME}/go/bin:${process.env.PATH}`,
+      // The Pi's go-server: also serve the endpoints taken over from its old
+      // Node webserver.
+      PI_ENDPOINTS: "true",
     },
   }],
 };
