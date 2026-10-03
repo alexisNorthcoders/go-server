@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go-server/models"
+	"go-server/utils"
 )
 
 func localRequest(method, path string, body any) *http.Request {
@@ -208,8 +209,17 @@ func getZigzag(t *testing.T) []models.ZigzagScore {
 	return scores
 }
 
+// withZigzagLimit swaps in a limiter allowing n scores per client for the test.
+func withZigzagLimit(t *testing.T, n int) {
+	t.Helper()
+	saved := zigzagScoreLimiter
+	zigzagScoreLimiter = utils.NewRateLimiter(n, time.Minute)
+	t.Cleanup(func() { zigzagScoreLimiter.Stop(); zigzagScoreLimiter = saved })
+}
+
 func TestZigzagScoresTopTenAscending(t *testing.T) {
 	freshDB(t)
+	withZigzagLimit(t, 100)
 	assert.Empty(t, getZigzag(t))
 
 	for _, s := range []int{500, 100, 1200, 300, 900, 50, 700, 1100, 200, 800, 1000, 600} {
@@ -230,6 +240,7 @@ func TestZigzagScoresTopTenAscending(t *testing.T) {
 
 func TestZigzagScoreRefusals(t *testing.T) {
 	freshDB(t)
+	withZigzagLimit(t, 100)
 	for _, origin := range []string{"", "https://evil.example", "http://raspberrypi.local.evil.example", "https://alexisraspberry.duckdns.org.evil.example"} {
 		assert.Equal(t, http.StatusForbidden, postZigzag(100, origin).Code, origin)
 	}
@@ -241,7 +252,7 @@ func TestZigzagScoreRefusals(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 
 	const origin = "https://alexisraspberry.duckdns.org"
-	for _, score := range []any{nil, 0, "", "abc", true, 1e300} {
+	for _, score := range []any{nil, 0, "", "abc", true, 1e300, -5, 1_000_001} {
 		assert.Equal(t, http.StatusBadRequest, postZigzag(score, origin).Code, score)
 	}
 	assert.Equal(t, http.StatusCreated, postZigzag("250", origin).Code)
@@ -252,4 +263,37 @@ func TestZigzagScoreRefusals(t *testing.T) {
 		got = append(got, s.Score)
 	}
 	assert.Equal(t, []int{12, 100, 250}, got)
+}
+
+func TestZigzagScoreRateLimitedPerClient(t *testing.T) {
+	freshDB(t)
+	withZigzagLimit(t, 2)
+
+	post := func(realIP, forwardedFor string) int {
+		r := postJSON("/zigzag/score", map[string]any{"score": 100}, "")
+		r.Header.Set("Origin", "https://alexisraspberry.duckdns.org")
+		r.RemoteAddr = "127.0.0.1:5000" // nginx
+		r.Header.Set("X-Real-IP", realIP)
+		if forwardedFor != "" {
+			r.Header.Set("X-Forwarded-For", forwardedFor)
+		}
+		w := httptest.NewRecorder()
+		PostZigzagScoreHandler(w, r)
+		return w.Code
+	}
+
+	assert.Equal(t, http.StatusCreated, post("203.0.113.1", ""))
+	assert.Equal(t, http.StatusCreated, post("203.0.113.1", ""))
+	// A made-up X-Forwarded-For does not get a fresh allowance.
+	assert.Equal(t, http.StatusTooManyRequests, post("203.0.113.1", "198.51.100.7"))
+	assert.Equal(t, http.StatusCreated, post("203.0.113.2", ""))
+}
+
+func TestZigzagClientIPTrustsXRealIPOnlyFromThisMachine(t *testing.T) {
+	r := httptest.NewRequest("POST", "/zigzag/score", nil)
+	r.Header.Set("X-Real-IP", "203.0.113.1")
+	r.RemoteAddr = "127.0.0.1:5000"
+	assert.Equal(t, "203.0.113.1", zigzagClientIP(r))
+	r.RemoteAddr = "192.0.2.50:5000"
+	assert.Equal(t, "192.0.2.50", zigzagClientIP(r))
 }

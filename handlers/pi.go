@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"go-server/models"
+	"go-server/utils"
 )
 
 // The Pi endpoints answer in the shapes the old Node webserver used, because
@@ -250,8 +251,29 @@ func zigzagOriginAllowed(r *http.Request) bool {
 	return slices.Contains(zigzagOrigins, u.Scheme+"://"+u.Hostname())
 }
 
+// maxZigzagScore is far above any real game (the best so far is about 70,000),
+// so only made-up scores are refused.
+const maxZigzagScore = 1_000_000
+
+var zigzagScoreLimiter = utils.NewRateLimiter(6, time.Minute)
+
+// zigzagClientIP is the address nginx saw (X-Real-IP, which it overwrites), or
+// the connection's own address for a request that did not come through nginx.
+// X-Forwarded-For is not used: nginx appends to it, so a client controls its
+// first entry.
+func zigzagClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" && isOwnAddress(r.RemoteAddr) {
+		return ip
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // zigzagScore reads a posted score, a number or a numeric string, dropping any
-// fraction. Zero counts as no score.
+// fraction. Zero, negative and implausibly high scores count as no score.
 func zigzagScore(v any) (int, bool) {
 	var n int
 	switch v := v.(type) {
@@ -269,12 +291,16 @@ func zigzagScore(v any) (int, bool) {
 	default:
 		return 0, false
 	}
-	return n, n != 0
+	return n, n > 0 && n <= maxZigzagScore
 }
 
 func PostZigzagScoreHandler(w http.ResponseWriter, r *http.Request) {
 	if !zigzagOriginAllowed(r) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Invalid origin or referer"})
+		return
+	}
+	if !zigzagScoreLimiter.Allow(zigzagClientIP(r)) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many scores, try again later"})
 		return
 	}
 	var req struct {
