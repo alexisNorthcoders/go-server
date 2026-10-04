@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -8,6 +9,7 @@ import (
 
 	"go-server/handlers"
 	"go-server/models"
+	"go-server/monitor"
 )
 
 var version = "dev"
@@ -43,7 +45,14 @@ func main() {
 	http.HandleFunc("/scores/", logRequest(handlers.ScoresHandler, "/scores"))
 	http.HandleFunc("/scores", logRequest(handlers.ScoresHandler, "/scores"))
 	if os.Getenv("PI_ENDPOINTS") == "true" {
-		registerPiRoutes()
+		// Monitoring failing to start must not take the games down with it.
+		mon, err := monitor.New(monitor.ConfigFromEnv())
+		if err != nil {
+			log.Printf("Monitor disabled: %v", err)
+		} else {
+			go mon.Run(context.Background())
+		}
+		registerPiRoutes(mon)
 		log.Println("Pi endpoints enabled")
 	}
 
@@ -53,11 +62,12 @@ func main() {
 
 // registerPiRoutes adds the endpoints taken over from the Raspberry Pi's old
 // Node webserver. Only the Pi sets PI_ENDPOINTS, so the VPS never serves them.
-// The static game pages are served by nginx.
-func registerPiRoutes() {
-	http.HandleFunc("POST /system-info", logRequest(handlers.LocalOnly(handlers.PostSystemInfoHandler), "/system-info"))
-	http.HandleFunc("GET /system-info/sse", logRequest(handlers.SystemInfoStreamHandler, "/system-info/sse"))
-	http.HandleFunc("GET /system-info/{limit}", logRequest(handlers.SystemInfoHandler, "/system-info/{limit}"))
+// The static game pages are served by nginx. mon, which watches the Pi for
+// monitor-canvas, is nil when it could not start.
+func registerPiRoutes(mon *monitor.Monitor) {
+	if mon != nil {
+		mon.Register(http.DefaultServeMux, logRequest)
+	}
 	http.HandleFunc("POST /amazon-prices", logRequest(handlers.LocalOnly(handlers.PostAmazonPriceHandler), "/amazon-prices"))
 	http.HandleFunc("GET /amazon-prices/last", logRequest(handlers.LocalOnly(handlers.LastAmazonPriceHandler), "/amazon-prices/last"))
 	http.HandleFunc("POST /zigzag/score", logRequest(handlers.PostZigzagScoreHandler, "/zigzag/score"))

@@ -5,7 +5,7 @@
 //	redis-cli ZRANGE user:zigzag_highscore:scores 0 -1 WITHSCORES \
 //	  | go run ./cmd/import-webserver -from ../clipboard/DB/database.sqlite
 //
-// -from is the webserver's SQLite database (system_info, amazon_prices);
+// -from is the webserver's SQLite database (amazon_prices);
 // stdin carries the zigzag scores from Redis. Running it again copies nothing
 // twice.
 package main
@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, table := range []string{"system_info", "amazon_prices"} {
+	for _, table := range []string{"amazon_prices"} {
 		if n, ok := copied[table]; ok {
 			log.Printf("%s: copied %d rows", table, n)
 		} else {

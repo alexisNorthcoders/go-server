@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// oldWebserverDB builds a database shaped like the Node webserver's, whose
-// system_info was created with "id SERIAL" and so has no ids.
+// oldWebserverDB builds a database shaped like the Node webserver's.
 func oldWebserverDB(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "database.sqlite")
@@ -27,7 +26,6 @@ func oldWebserverDB(t *testing.T) string {
 		`CREATE TABLE amazon_prices (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, title TEXT NOT NULL, price TEXT NOT NULL, timestamp TEXT NOT NULL)`,
 		`INSERT INTO amazon_prices (id, url, title, price, timestamp) VALUES
 			(41, 'https://www.amazon.co.uk/dp/B01D8KOZF4', 'ELEGOO UNO R3', '£42.99', '2026-09-06T10:34:33.896Z')`,
-		// Tables the webserver shared with the clipboard app stay behind.
 		`CREATE TABLE files (id INTEGER PRIMARY KEY, name TEXT)`,
 	} {
 		_, err := src.Exec(stmt)
@@ -43,15 +41,7 @@ func TestImportWebserverTablesCopiesOnce(t *testing.T) {
 
 	copied, err := ImportWebserverTables(source)
 	assert.NoError(t, err)
-	assert.Equal(t, map[string]int64{"system_info": 2, "amazon_prices": 1}, copied)
-
-	records, err := GetLastSystemInfo(10)
-	assert.NoError(t, err)
-	assert.Len(t, records, 2)
-	assert.Equal(t, "2026-04-21 17:19:02", records[0]["timestamp"])
-	assert.Equal(t, "70.8°C", records[0]["temperature"])
-	assert.Equal(t, 3070.09, records[0]["memory_used"])
-	assert.NotNil(t, records[0]["id"])
+	assert.Equal(t, map[string]int64{"amazon_prices": 1}, copied)
 
 	price, err := GetLastAmazonPrice("https://www.amazon.co.uk/dp/B01D8KOZF4")
 	assert.NoError(t, err)
@@ -63,12 +53,12 @@ func TestImportWebserverTablesCopiesOnce(t *testing.T) {
 	copied, err = ImportWebserverTables(source)
 	assert.NoError(t, err)
 	assert.Empty(t, copied)
-	records, _ = GetLastSystemInfo(10)
-	assert.Len(t, records, 2)
 
-	var files int
-	DB.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name = 'files'").Scan(&files)
-	assert.Zero(t, files)
+	// Readings and the tables the webserver shared with the clipboard app
+	// stay behind.
+	var left int
+	DB.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('files', 'system_info')").Scan(&left)
+	assert.Zero(t, left)
 }
 
 func TestImportZigzagScores(t *testing.T) {

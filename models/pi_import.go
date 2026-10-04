@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-// ImportWebserverTables copies system_info and amazon_prices from the old Node
-// webserver's database at sourcePath. A table that already has rows here is
-// skipped, so running it twice copies nothing twice. It returns how many rows
+// ImportWebserverTables copies amazon_prices from the old Node webserver's
+// database at sourcePath. Its system_info readings are not copied: they went
+// to users.db once and from there into the monitor's store (see
+// cmd/migrate-system-info). A table that already has rows here is skipped, so running it twice copies nothing twice. It returns how many rows
 // it copied per table.
 func ImportWebserverTables(sourcePath string) (map[string]int64, error) {
 	ctx := context.Background()
@@ -29,12 +30,6 @@ func ImportWebserverTables(sourcePath string) (map[string]int64, error) {
 	defer conn.ExecContext(ctx, "DETACH DATABASE src")
 
 	copies := []struct{ table, insert string }{
-		// The old table never filled its ids, so new ones are assigned.
-		{"system_info", `INSERT INTO system_info (timestamp, temperature, cpu_usage, memory_used, memory_total,
-			disk_used, disk_available, disk_read_speed, disk_write_speed)
-			SELECT timestamp, temperature, cpu_usage, memory_used, memory_total,
-			disk_used, disk_available, disk_read_speed, disk_write_speed
-			FROM src.system_info ORDER BY rowid`},
 		{"amazon_prices", `INSERT INTO amazon_prices (id, url, title, price, timestamp)
 			SELECT id, url, title, price, timestamp FROM src.amazon_prices`},
 	}

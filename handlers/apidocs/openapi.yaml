@@ -8,245 +8,119 @@ servers:
     description: Raspberry Pi
 
 paths:
-  /system-info:
-    post:
-      summary: Post Raspberry Pi System Health Info
-      description: Local only. Called by pi_health every minute. Records the system health information of the Raspberry Pi, including temperature, CPU usage, memory usage, disk usage, and disk activity.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - temperature
-                - cpuUsage
-                - memoryUsage
-                - diskUsage
-                - diskActivity
-              properties:
-                temperature:
-                  description: CPU temperature, stored as sent
-                  example: "51.0°C"
-                cpuUsage:
-                  description: CPU usage, stored as sent
-                  example: "2%"
-                memoryUsage:
-                  type: object
-                  properties:
-                    usedMemory: { type: number, example: 2387.45 }
-                    totalMemory: { type: number, example: 4045 }
-                diskUsage:
-                  type: object
-                  properties:
-                    used: { type: string, example: "29G" }
-                    available: { type: string, example: "194G" }
-                diskActivity:
-                  type: object
-                  properties:
-                    readSpeed: { type: number, example: 0 }
-                    writeSpeed: { type: number, example: 0 }
-      responses:
-        '201':
-          description: Record added successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Record added successfully"
-                  recordId:
-                    type: integer
-                    example: 42
-        '400':
-          description: Bad request - Missing required fields
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Missing required fields"
-        '500':
-          description: Internal server error - Failed to insert record
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Failed to insert record"
-  /system-info/{limit}:
+  /monitor/stream:
     get:
-      summary: Get system info records with path parameter
-      description: Retrieves the last N system records. The limit can be provided as a path parameter.
+      summary: Live snapshot of the Pi
+      description: >
+        Server-sent events. Each event is a JSON snapshot: the newest reading
+        (taken every 5 seconds), the host, and every service's state (checked
+        every 30 seconds). Sent at connect and after every reading and check.
+      responses:
+        '200':
+          description: Stream of snapshots
+          content:
+            text/event-stream:
+              schema:
+                type: object
+                properties:
+                  sample:
+                    $ref: '#/components/schemas/Sample'
+                  host:
+                    type: object
+                    properties:
+                      hostname: { type: string }
+                      kernel: { type: string }
+                      cores: { type: integer }
+                      uptime: { type: number, description: Seconds since boot }
+                      ports: { type: array, items: { type: integer }, description: TCP ports listening on every address }
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Service'
+  /monitor/history:
+    get:
+      summary: Readings over a time range, in columns
+      description: >
+        Up to 15 minutes comes from the 5-second readings in memory (tier
+        "live"). Longer ranges come from the finest stored tier that covers
+        them: per-minute readings (48 hours), 5-minute rollups (30 days) or
+        hourly rollups (2 years). Rollups also carry each metric's peak as
+        "<metric>_max". Unknown values are null.
       parameters:
-        - name: limit
-          in: path
-          description: Number of records to retrieve
-          required: true
-          schema:
-            type: integer
+        - name: range
+          in: query
+          required: false
+          description: A number and a unit (m, h, d or y), at most 2y.
+          schema: { type: string, default: 1h, example: 7d }
       responses:
-        "200":
-          description: Successful response with system records.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  required:
-                    - timestamp
-                    - temperature
-                    - cpu_usage
-                    - memory_used
-                    - memory_total
-                    - disk_used
-                    - disk_available
-                    - disk_read_speed
-                    - disk_write_speed
-                  properties:
-                    id:
-                      type: integer
-                      nullable: true
-                      description: Unique record ID (null if not assigned)
-                      example: null
-                    timestamp:
-                      type: string
-                      format: date-time
-                      description: Timestamp of the record
-                      example: "2025-02-13 22:15:01"
-                    temperature:
-                      type: string
-                      description: CPU temperature with unit (°C)
-                      example: "51.0°C"
-                    cpu_usage:
-                      type: string
-                      description: CPU usage percentage
-                      example: "2%"
-                    memory_used:
-                      type: number
-                      description: Used memory in MB
-                      example: 2387.45
-                    memory_total:
-                      type: number
-                      description: Total memory in MB
-                      example: 4045
-                    disk_used:
-                      type: string
-                      description: Used disk space
-                      example: "29G"
-                    disk_available:
-                      type: string
-                      description: Available disk space
-                      example: "194G"
-                    disk_read_speed:
-                      type: number
-                      description: Disk read speed in MB/s
-                      example: 0
-                    disk_write_speed:
-                      type: number
-                      description: Disk write speed in MB/s
-                      example: 0
-        "500":
-          description: Internal Server Error
+        '200':
+          description: The readings
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  error:
-                    type: string
-  /system-info/sse:
+                  tier: { type: string, enum: [live, samples, rollup_5m, rollup_1h] }
+                  step: { type: integer, description: Seconds between readings }
+                  ts: { type: array, items: { type: integer }, description: Unix seconds }
+                  series:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: { type: number, nullable: true }
+        '400':
+          description: The range could not be read
+  /monitor/events:
     get:
-      summary: Stream Raspberry Pi System Health Info
-      description: Streams the latest system health information of the Raspberry Pi over SSE. Clients can specify a limit on the number of records to receive.
+      summary: Service status changes, newest first
+      description: A change is recorded once the new status has held for two checks in a row. Kept 90 days.
       parameters:
         - name: limit
           in: query
-          description: The number of records to stream (defaults to 60)
           required: false
-          schema:
-            type: integer
-            default: 60
-            example: 60
+          schema: { type: integer, default: 50, maximum: 500 }
       responses:
         '200':
-          description: Stream of system health records
+          description: The changes
           content:
-            text/event-stream:
-               schema:
+            application/json:
+              schema:
                 type: array
                 items:
                   type: object
-                  required:
-                    - timestamp
-                    - temperature
-                    - cpu_usage
-                    - memory_used
-                    - memory_total
-                    - disk_used
-                    - disk_available
-                    - disk_read_speed
-                    - disk_write_speed
                   properties:
-                    id:
-                      type: integer
-                      nullable: true
-                      description: Unique record ID (null if not assigned)
-                      example: null
-                    timestamp:
-                      type: string
-                      format: date-time
-                      description: Timestamp of the record
-                      example: "2025-02-13 22:15:01"
-                    temperature:
-                      type: string
-                      description: CPU temperature with unit (°C)
-                      example: "51.0°C"
-                    cpu_usage:
-                      type: string
-                      description: CPU usage percentage
-                      example: "2%"
-                    memory_used:
-                      type: number
-                      description: Used memory in MB
-                      example: 2387.45
-                    memory_total:
-                      type: number
-                      description: Total memory in MB
-                      example: 4045
-                    disk_used:
-                      type: string
-                      description: Used disk space
-                      example: "29G"
-                    disk_available:
-                      type: string
-                      description: Available disk space
-                      example: "194G"
-                    disk_read_speed:
-                      type: number
-                      description: Disk read speed in MB/s
-                      example: 0
-                    disk_write_speed:
-                      type: number
-                      description: Disk write speed in MB/s
-                      example: 0
-        '500':
-          description: Internal server error - Failed to retrieve records
+                    ts: { type: integer }
+                    group: { type: string }
+                    name: { type: string }
+                    status: { type: string, enum: [up, warn, down, stopped] }
+                    detail: { type: string }
+  /monitor/storage:
+    get:
+      summary: How much monitoring history is stored
+      responses:
+        '200':
+          description: The metrics database's size and each table's rows against what it holds when full
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  error:
-                    type: string
-                    example: "Failed to retrieve records"
+                  path: { type: string }
+                  file_bytes: { type: integer }
+                  wal_bytes: { type: integer }
+                  free_bytes: { type: integer }
+                  tables:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        table: { type: string }
+                        step: { type: integer }
+                        rows: { type: integer }
+                        capacity: { type: integer }
+                        retention: { type: integer }
+                        oldest: { type: integer, nullable: true }
+                        newest: { type: integer, nullable: true }
   /zigzag/score:
     post:
       summary: Add Zigzag Game Highscore
@@ -375,3 +249,34 @@ paths:
         '400': { description: Missing URL }
         '403': { description: Not called from this machine }
         '500': { description: Failed to get last price }
+components:
+  schemas:
+    Sample:
+      type: object
+      description: One reading. Rates are averages since the previous reading; unknown values are null.
+      properties:
+        ts: { type: integer, description: Unix seconds }
+        cpu: { type: number, nullable: true, description: Percent busy }
+        temp: { type: number, nullable: true, description: °C }
+        load1: { type: number, nullable: true }
+        mem_used: { type: number, nullable: true, description: MiB, total minus available }
+        mem_total: { type: number, nullable: true, description: MiB }
+        swap_used: { type: number, nullable: true, description: MiB }
+        disk_used: { type: number, nullable: true, description: GiB on / }
+        disk_total: { type: number, nullable: true, description: GiB on / }
+        disk_read: { type: number, nullable: true, description: kB/s }
+        disk_write: { type: number, nullable: true, description: kB/s }
+        net_rx: { type: number, nullable: true, description: kB/s }
+        net_tx: { type: number, nullable: true, description: kB/s }
+    Service:
+      type: object
+      properties:
+        group: { type: string, enum: [system, pm2, docker, redis, database] }
+        name: { type: string }
+        status: { type: string, enum: [up, warn, down, stopped], description: Stopped is turned off on purpose, not an alarm }
+        detail: { type: string }
+        cpu: { type: number, description: Percent (pm2 only) }
+        mem_mb: { type: number, description: MiB (pm2 and redis) }
+        restarts: { type: integer, description: pm2 only }
+        since: { type: integer, description: Unix seconds it has been in this state }
+        stats: { type: object, additionalProperties: { type: string } }

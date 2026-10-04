@@ -5,3 +5,5 @@ helper.txt
 package.json
 tmp/
 logs
+metrics.db
+metrics.db-*

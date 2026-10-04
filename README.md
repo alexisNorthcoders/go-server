@@ -204,9 +204,10 @@ These took over from the Pi's old Node webserver. They are off unless `PI_ENDPOI
 
 | Endpoint | Who calls it | Notes |
 |---|---|---|
-| `POST /system-info` | pi_health, every minute | Local only. Stores the reading as sent, units included (`"70.8°C"`). |
-| `GET /system-info/{limit}` | | Newest readings first. The limit defaults to 60, and the most is 10080 (a week). |
-| `GET /system-info/sse?limit=` | monitor-canvas | The same readings as server-sent events, once at connect and then every minute. |
+| `GET /monitor/stream` | monitor-canvas | Server-sent events: the newest reading, the host and every service's state. See [Monitoring the Pi](#monitoring-the-pi). |
+| `GET /monitor/history?range=` | monitor-canvas | Readings over `15m` … `2y`, in columns, from the finest tier that covers the range. |
+| `GET /monitor/events?limit=` | monitor-canvas | Service status changes, newest first. |
+| `GET /monitor/storage` | monitor-canvas | How many rows each tier holds against its capacity, and the file's size. |
 | `POST /amazon-prices` | amazon-scraper | Local only. |
 | `GET /amazon-prices/last?url=` | amazon-scraper | Local only. `lastPrice` is `null` when nothing is recorded. |
 | `POST /zigzag/score` | zigzag game | Only accepted from `http://raspberrypi.local` or `https://alexisraspberry.duckdns.org` (Origin or Referer). |
@@ -220,11 +221,43 @@ The game pages are static files served by nginx. The Pi's nginx config, includin
 
 ### Moving the old webserver's data
 
-`cmd/import-webserver` copies the webserver's data into `users.db` once: `system_info` and `amazon_prices` from its SQLite database, and the zigzag scores from Redis on stdin. Running it again copies nothing twice.
+`cmd/import-webserver` copies the webserver's data into `users.db` once: `amazon_prices` from its SQLite database, and the zigzag scores from Redis on stdin. Running it again copies nothing twice.
 
 ```bash
 redis-cli ZRANGE user:zigzag_highscore:scores 0 -1 WITHSCORES \
   | go run ./cmd/import-webserver -from ../clipboard/DB/database.sqlite
+```
+
+### Monitoring the Pi
+
+The `monitor` package watches the Pi go-server runs on, for [monitor-canvas](https://github.com/alexisNorthcoders/monitor-canvas). It starts with the Pi endpoints, and if it cannot start, go-server logs that and carries on without it. It replaced pi_health, which posted a reading to `POST /system-info` every minute.
+
+- **Readings**, every 5 seconds, straight from `/proc` and `/sys`: CPU, temperature, load, memory, swap, disk space on `/`, disk I/O and network traffic (physical disks and interfaces only).
+- **Services**, every 30 seconds: the systemd units in `MONITOR_UNITS`, every pm2 process (from `pm2 jlist`, reading only status, CPU, memory, restarts and uptime, never the environment), every Docker container, Redis (`INFO` at `REDIS_ADDR`) and the size of each SQLite database (`users.db`, `metrics.db` and any in `MONITOR_SQLITE`).
+
+History is kept in its own file, `metrics.db` (`METRICS_DB`), so it never bloats or locks `users.db`. Each tier is pruned to its retention every hour, and the freed space is handed back (incremental auto-vacuum), so the file levels off at about 3–4 MB:
+
+| Tier | Table | Kept for | Rows when full |
+|---|---|---|---|
+| 5-second readings | in memory | 15 minutes | – |
+| Per-minute average | `samples` | 48 hours | 2,880 |
+| 5-minute average and peak | `rollup_5m` | 30 days | 8,640 |
+| Hourly average and peak | `rollup_1h` | 2 years | 17,520 |
+| Service status changes | `service_events` | 90 days | – |
+
+A service's status is stored only when it changes, and only once the new status has held for two checks in a row, so one slow check does not record an outage. "Stopped" (a pm2 process or container turned off on purpose, or exited with code 0) is not counted as down.
+
+| Variable | Default |
+|---|---|
+| `METRICS_DB` | `./metrics.db` |
+| `MONITOR_UNITS` | `nginx,redis-server,docker,ssh,cron,NetworkManager` |
+| `REDIS_ADDR` | `127.0.0.1:6379` |
+| `MONITOR_SQLITE` | none; extra SQLite files to report the size of, comma-separated |
+
+`cmd/migrate-system-info` moves pi_health's old readings out of `users.db` once: it rolls them up into the tiers, keeping what is within their retention, then drops `system_info` and vacuums `users.db`. Pass `-keep` to leave the table in place.
+
+```bash
+go run ./cmd/migrate-system-info
 ```
 
 ---

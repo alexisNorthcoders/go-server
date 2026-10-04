@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert" // Considera usar assert para uma saída de teste mais clara
 	"go-server/models"
+	"go-server/monitor"
 )
 
 func TestLogRequest(t *testing.T) {
@@ -52,7 +53,9 @@ func TestPiRoutes(t *testing.T) {
 	defer os.Chdir(wd)
 	assert.NoError(t, models.InitDB())
 	defer models.DB.Close()
-	registerPiRoutes()
+	mon, err := monitor.New(monitor.Config{StorePath: "metrics.db"})
+	assert.NoError(t, err)
+	registerPiRoutes(mon)
 
 	serve := func(method, path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, nil)
@@ -62,12 +65,14 @@ func TestPiRoutes(t *testing.T) {
 		return w
 	}
 
-	assert.Equal(t, http.StatusOK, serve("GET", "/system-info/5").Code)
-	assert.Equal(t, "application/json", serve("GET", "/system-info/5").Header().Get("Content-Type"))
+	assert.Equal(t, http.StatusOK, serve("GET", "/monitor/history?range=6h").Code)
+	assert.Equal(t, "*", serve("GET", "/monitor/storage").Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, http.StatusOK, serve("GET", "/monitor/events").Code)
+	assert.Equal(t, http.StatusNotFound, serve("GET", "/system-info/5").Code)
 	assert.Equal(t, http.StatusOK, serve("GET", "/zigzag/score").Code)
 	assert.Equal(t, http.StatusForbidden, serve("POST", "/zigzag/score").Code)
 	assert.Equal(t, http.StatusBadRequest, serve("GET", "/amazon-prices/last").Code)
-	assert.Equal(t, http.StatusMethodNotAllowed, serve("DELETE", "/system-info/5").Code)
+	assert.Equal(t, http.StatusMethodNotAllowed, serve("DELETE", "/monitor/history").Code)
 
 	docs := serve("GET", "/api-docs/")
 	assert.Equal(t, http.StatusOK, docs.Code)
