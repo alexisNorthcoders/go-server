@@ -214,7 +214,17 @@ These took over from the Pi's old Node webserver. They are off unless `PI_ENDPOI
 
 "Local only" means the request came straight from the machine itself (loopback or one of its own addresses), not through nginx.
 
-The game pages (`/zigzag/`, `/kings-and-pigs/`, `/monitor-canvas/`) are static files served by nginx: see `docs/deploy/nginx-pi.conf` (in `/etc/nginx/snippets/pi-games.conf`) and `docs/deploy/nginx-extra-mime-types.conf` (in `/etc/nginx/conf.d/`, so `.mjs` modules load).
+The game pages are static files served by nginx; `docs/deploy` holds that config:
+
+| File | Installed as | |
+|---|---|---|
+| `nginx-pi-games.conf` | `/etc/nginx/snippets/pi-games.conf` | `/zigzag/` and `/kings-and-pigs/`, public and LAN. Each serves only its page and the files it loads. Proxies `/zigzag/score` here, rate-limited. |
+| `nginx-pi-lan.conf` | `/etc/nginx/snippets/pi-lan.conf` | `/monitor-canvas/`, LAN only. |
+| `nginx-security-headers.conf` | `/etc/nginx/snippets/security-headers.conf` | HSTS, nosniff and Referrer-Policy. |
+| `nginx-limits.conf` | `/etc/nginx/conf.d/limits.conf` | `server_tokens off` and the rate-limit zones for the public forms. |
+| `nginx-extra-mime-types.conf` | `/etc/nginx/conf.d/extra-mime-types.conf` | `.mjs`, `.wav` and `.ttf` types. |
+
+`POST /zigzag/score` is also limited here: 6 scores a minute per player (by the address nginx passes in `X-Real-IP`), and scores must be between 1 and 1,000,000.
 
 ### Moving the old webserver's data
 
