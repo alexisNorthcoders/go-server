@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -173,12 +174,17 @@ func dockerCheck(ctx context.Context) []Service {
 	return parseDockerPS(out)
 }
 
+// composeTempName matches the name docker compose gives a container for the
+// few seconds it is being replaced (<short id>_<name>). Listing it would record
+// a "Created" warning that is never cleared once the container is removed.
+var composeTempName = regexp.MustCompile(`^[0-9a-f]{12}_`)
+
 func parseDockerPS(out []byte) []Service {
 	services := []Service{}
 	sc := bufio.NewScanner(strings.NewReader(string(out)))
 	for sc.Scan() {
 		var c struct{ Names, State, Status, Image string }
-		if json.Unmarshal(sc.Bytes(), &c) != nil {
+		if json.Unmarshal(sc.Bytes(), &c) != nil || composeTempName.MatchString(c.Names) {
 			continue
 		}
 		s := Service{Group: "docker", Name: c.Names, Detail: c.Status}

@@ -65,6 +65,7 @@ func TestParseDockerPS(t *testing.T) {
 {"Names":"done","State":"exited","Status":"Exited (0) 3 days ago"}
 {"Names":"crashed","State":"exited","Status":"Exited (137) 1 hour ago"}
 {"Names":"looping","State":"restarting","Status":"Restarting (1) 5 seconds ago"}
+{"Names":"6d66a518f0aa_reply-buddy-app-1","State":"created","Status":"Created"}
 `
 	got := parseDockerPS([]byte(out))
 	statuses := map[string]string{}
