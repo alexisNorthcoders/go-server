@@ -29,6 +29,7 @@ func (m *Monitor) Register(mux *http.ServeMux, wrap func(http.HandlerFunc, strin
 	// Logs are more sensitive than metrics. Like the rest this is only
 	// registered on the Pi and never proxied by nginx, so it is LAN-only.
 	mux.HandleFunc("GET /monitor/logs/pm2/{name}", wrap(m.PM2LogsHandler, "/monitor/logs/pm2/{name}"))
+	mux.HandleFunc("GET /monitor/logs/docker/{name}", wrap(m.DockerLogsHandler, "/monitor/logs/docker/{name}"))
 }
 
 // StreamHandler sends a snapshot as a server-sent event straight away and

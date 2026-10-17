@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -237,17 +238,10 @@ func (m *Monitor) hasPM2(name string) bool {
 	return false
 }
 
-// PM2LogsHandler streams a pm2 process's log as server-sent events: the last
-// ?lines= (200 by default, 1000 at most) lines, then new ones as they are
-// written, from ?stream=out (default) or err. Nothing is stored; the file is
-// only followed while the client is connected.
-func (m *Monitor) PM2LogsHandler(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if !m.hasPM2(name) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Unknown pm2 process"})
-		return
-	}
-	stream := r.URL.Query().Get("stream")
+// logRequest checks ?stream= and ?lines= and returns the Flusher the stream
+// needs. When it returns false the response has been written.
+func logRequest(w http.ResponseWriter, r *http.Request) (stream string, lines int, flusher http.Flusher, ok bool) {
+	stream = r.URL.Query().Get("stream")
 	if stream == "" {
 		stream = "out"
 	}
@@ -260,9 +254,47 @@ func (m *Monitor) PM2LogsHandler(w http.ResponseWriter, r *http.Request) {
 		lines = defaultLogLines
 	}
 	lines = min(lines, maxLogLines)
-	flusher, ok := w.(http.Flusher)
+	flusher, ok = w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+	}
+	return
+}
+
+// startEvents sets the event-stream headers and returns the function that
+// sends one lines event.
+func startEvents(w http.ResponseWriter, flusher http.Flusher) func([]string) error {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	return func(lines []string) error {
+		b, _ := json.Marshal(map[string][]string{"lines": lines})
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+}
+
+func sendGone(w http.ResponseWriter, flusher http.Flusher, message string) {
+	b, _ := json.Marshal(map[string]string{"message": message})
+	fmt.Fprintf(w, "event: gone\ndata: %s\n\n", b)
+	flusher.Flush()
+}
+
+// PM2LogsHandler streams a pm2 process's log as server-sent events: the last
+// ?lines= (200 by default, 1000 at most) lines, then new ones as they are
+// written, from ?stream=out (default) or err. Nothing is stored; the file is
+// only followed while the client is connected.
+func (m *Monitor) PM2LogsHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !m.hasPM2(name) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Unknown pm2 process"})
+		return
+	}
+	stream, lines, flusher, ok := logRequest(w, r)
+	if !ok {
 		return
 	}
 	outPath, errPath, err := pm2LogPaths(r.Context(), name)
@@ -276,25 +308,166 @@ func (m *Monitor) PM2LogsHandler(w http.ResponseWriter, r *http.Request) {
 		path = errPath
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	send := func(lines []string) error {
-		b, _ := json.Marshal(map[string][]string{"lines": lines})
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-			return err
-		}
-		flusher.Flush()
-		return nil
-	}
+	send := startEvents(w, flusher)
 	err = followFile(r.Context(), path, lines, send)
 	if err != nil && r.Context().Err() == nil {
 		if !unreadable(err) {
 			log.Printf("monitor: following %q: %v", path, err)
 			return
 		}
-		b, _ := json.Marshal(map[string]string{"message": "Log file is missing or not readable"})
-		fmt.Fprintf(w, "event: gone\ndata: %s\n\n", b)
-		flusher.Flush()
+		sendGone(w, flusher, "Log file is missing or not readable")
+	}
+}
+
+// logFlush is how often lines read from docker are sent together.
+var logFlush = time.Second
+
+// dockerLogsCmd builds the command that follows a container's logs. The name
+// comes after "--" so it can never be read as a flag. A variable so tests can
+// replace it.
+var dockerLogsCmd = func(ctx context.Context, name string, lines int) *exec.Cmd {
+	return exec.CommandContext(ctx, "docker", "logs", "--follow", "--tail", strconv.Itoa(lines), "--", name)
+}
+
+func (m *Monitor) hasDocker(name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.services {
+		if s.Group == "docker" && s.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// followDocker runs docker logs for a container and sends its lines through
+// send, batched each logFlush, until ctx is done (it returns nil) or docker
+// logs exits or send fails (it returns that error). The process is killed
+// and waited for before it returns.
+func followDocker(ctx context.Context, name, stream string, lines int, send func([]string) error) error {
+	cmd := dockerLogsCmd(ctx, name, lines)
+	// docker logs writes the container's stdout and stderr to its own, and
+	// the one not asked for goes to /dev/null. A container started with a TTY
+	// sends everything to stdout, so its Errors tab stays empty.
+	var pipe io.ReadCloser
+	var err error
+	if stream == "err" {
+		pipe, err = cmd.StderrPipe()
+	} else {
+		pipe, err = cmd.StdoutPipe()
+	}
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	readErr := followReader(ctx, pipe, send)
+	// Reads are over: kill (a no-op if it has exited) and reap.
+	if cmd.Process != nil {
+		cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if ctx.Err() != nil {
+		return nil
+	}
+	if readErr != nil && readErr != io.EOF {
+		return readErr
+	}
+	if waitErr != nil {
+		return waitErr
+	}
+	return io.EOF
+}
+
+// followReader splits what it reads from r into lines and sends the ones that
+// arrived within each logFlush together. It returns nil when ctx is done, and
+// otherwise when r ends (io.EOF, after sending what is left) or send fails.
+func followReader(ctx context.Context, r io.Reader, send func([]string) error) error {
+	type chunk struct {
+		lines []string
+		err   error
+	}
+	ch := make(chan chunk)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		var partial []byte
+		skipping := false
+		buf := make([]byte, logChunk)
+		for {
+			n, err := r.Read(buf)
+			var out []string
+			if n > 0 {
+				out, partial, skipping = splitLines(nil, partial, buf[:n], skipping)
+			}
+			if err != nil && len(partial) > 0 {
+				out = append(out, cleanLine(partial))
+			}
+			if len(out) > 0 || err != nil {
+				select {
+				case ch <- chunk{out, err}:
+				case <-stop:
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	var pending []string
+	flush := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		out := pending
+		pending = nil
+		return send(out)
+	}
+	t := time.NewTicker(logFlush)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			if err := flush(); err != nil {
+				return err
+			}
+		case c := <-ch:
+			pending = append(pending, c.lines...)
+			if c.err != nil {
+				if err := flush(); err != nil {
+					return err
+				}
+				return c.err
+			}
+		}
+	}
+}
+
+// DockerLogsHandler streams a Docker container's logs as server-sent events,
+// in the shape PM2LogsHandler uses. Nothing is stored; docker logs runs only
+// while the client is connected.
+func (m *Monitor) DockerLogsHandler(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !m.hasDocker(name) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Unknown container"})
+		return
+	}
+	stream, lines, flusher, ok := logRequest(w, r)
+	if !ok {
+		return
+	}
+	send := startEvents(w, flusher)
+	err := followDocker(r.Context(), name, stream, lines, send)
+	if err != nil && r.Context().Err() == nil {
+		msg := "Container's logs ended"
+		if err != io.EOF {
+			msg = fmt.Sprintf("docker logs stopped: %v", err)
+		}
+		sendGone(w, flusher, msg)
 	}
 }

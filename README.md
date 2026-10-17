@@ -209,6 +209,7 @@ These took over from the Pi's old Node webserver. They are off unless `PI_ENDPOI
 | `GET /monitor/events?limit=` | monitor-canvas | Service status changes, newest first. |
 | `GET /monitor/storage` | monitor-canvas | How many rows each tier holds against its capacity, and the file's size. |
 | `GET /monitor/logs/pm2/{name}?stream=&lines=` | monitor-canvas | Server-sent events: a pm2 process's log, live. See [Streaming logs](#streaming-logs). |
+| `GET /monitor/logs/docker/{name}?stream=&lines=` | monitor-canvas | Server-sent events: a Docker container's logs, live. See [Streaming logs](#streaming-logs). |
 | `POST /amazon-prices` | amazon-scraper | Local only. |
 | `GET /amazon-prices/last?url=` | amazon-scraper | Local only. `lastPrice` is `null` when nothing is recorded. |
 | `POST /zigzag/score` | zigzag game | Only accepted from `http://raspberrypi.local` or `https://alexisraspberry.duckdns.org` (Origin or Referer). |
@@ -250,6 +251,17 @@ The first `data` event holds the last `lines` lines (read by seeking from the en
 
 ```bash
 curl -N 'localhost:8080/monitor/logs/pm2/go-server-dev?stream=err'
+```
+
+`GET /monitor/logs/docker/{name}` does the same for a Docker container, with the same `stream`, `lines`, events, line cap and UTF-8 handling. It runs `docker logs --follow --tail <lines> -- <name>` while the client is connected and kills it when the client goes, so nothing is kept and no process is left behind.
+
+- `{name}` must be a container from the monitor's latest check, or the response is a JSON 404. It is passed after `--`, so it is never read as a flag.
+- `stream=out` sends the container's stdout, `stream=err` its stderr. A container started with a TTY sends everything to stdout, so its `err` stream stays empty.
+- Lines that arrive close together are sent in one event, about once a second.
+- If `docker logs` exits (the container was removed, or Docker restarted) a `gone` event carries the reason and the response ends.
+
+```bash
+curl -N 'localhost:8080/monitor/logs/docker/joplin_server'
 ```
 
 ### Monitoring the Pi
