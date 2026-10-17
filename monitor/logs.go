@@ -227,11 +227,11 @@ var pm2LogPaths = func(ctx context.Context, name string) (outPath, errPath strin
 	return "", "", fmt.Errorf("pm2 process %q not found", name)
 }
 
-func (m *Monitor) hasPM2(name string) bool {
+func (m *Monitor) hasService(group, name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, s := range m.services {
-		if s.Group == "pm2" && s.Name == name {
+		if s.Group == group && s.Name == name {
 			return true
 		}
 	}
@@ -289,7 +289,7 @@ func sendGone(w http.ResponseWriter, flusher http.Flusher, message string) {
 // only followed while the client is connected.
 func (m *Monitor) PM2LogsHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if !m.hasPM2(name) {
+	if !m.hasService("pm2", name) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Unknown pm2 process"})
 		return
 	}
@@ -327,17 +327,6 @@ var logFlush = time.Second
 // replace it.
 var dockerLogsCmd = func(ctx context.Context, name string, lines int) *exec.Cmd {
 	return exec.CommandContext(ctx, "docker", "logs", "--follow", "--tail", strconv.Itoa(lines), "--", name)
-}
-
-func (m *Monitor) hasDocker(name string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, s := range m.services {
-		if s.Group == "docker" && s.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // followDocker runs docker logs for a container and sends its lines through
@@ -453,7 +442,7 @@ func followReader(ctx context.Context, r io.Reader, send func([]string) error) e
 // while the client is connected.
 func (m *Monitor) DockerLogsHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if !m.hasDocker(name) {
+	if !m.hasService("docker", name) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Unknown container"})
 		return
 	}
