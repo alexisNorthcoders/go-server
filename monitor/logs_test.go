@@ -340,3 +340,19 @@ func TestDockerDisconnectKillsProcess(t *testing.T) {
 		t.Fatal("did not stop")
 	}
 }
+
+func TestDockerLogsBatchesLinesArrivingTogether(t *testing.T) {
+	fakeDocker(t, "echo a; echo b; echo c; sleep 0.3; echo d; echo e; exit 0")
+	logFlush = 150 * time.Millisecond
+	m := logsMonitor(t, "", "")
+	body := serve(m, "/monitor/logs/docker/box").Body.String()
+	if n := strings.Count(body, "data: {\"lines\""); n != 2 {
+		t.Fatalf("want 2 batches for 5 lines, got %d: %q", n, body)
+	}
+	if !strings.Contains(body, "{\"lines\":[\"a\",\"b\",\"c\"]}") || !strings.Contains(body, "{\"lines\":[\"d\",\"e\"]}") {
+		t.Fatalf("%q", body)
+	}
+	if !strings.Contains(body, "event: gone\ndata: {\"message\":\"Container's logs ended\"}") {
+		t.Fatalf("%q", body)
+	}
+}
