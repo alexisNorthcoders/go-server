@@ -115,15 +115,19 @@ func pm2Check(ctx context.Context) []Service {
 	return services
 }
 
-func parsePM2(out []byte) ([]Service, error) {
-	// pm2 can print notices, such as "[PM2] ...", before the JSON, which is
-	// on a line of its own.
+// pm2JSON drops the notices, such as "[PM2] ...", pm2 can print before the
+// JSON, which is on a line of its own.
+func pm2JSON(out []byte) []byte {
 	for line := range strings.Lines(string(out)) {
 		if line = strings.TrimSpace(line); strings.HasPrefix(line, "[") && json.Valid([]byte(line)) {
-			out = []byte(line)
-			break
+			return []byte(line)
 		}
 	}
+	return out
+}
+
+func parsePM2(out []byte) ([]Service, error) {
+	out = pm2JSON(out)
 	// Only these fields are read: jlist also carries each process's
 	// environment, secrets included, which must go no further.
 	var procs []struct {
