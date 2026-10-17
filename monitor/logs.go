@@ -81,11 +81,8 @@ func followFile(ctx context.Context, path string, lines int, send func([]string)
 		}
 		// A different file at the path means rotation; the old one has been
 		// read to its end by now.
-		pi, perr := os.Stat(path)
-		if perr != nil {
-			return perr
-		}
-		if read < maxPollBytes && !os.SameFile(fi, pi) {
+		// A path that is briefly missing mid-rotation is retried next check.
+		if pi, perr := os.Stat(path); perr == nil && read < maxPollBytes && !os.SameFile(fi, pi) {
 			nf, err := openLog(path)
 			if err != nil {
 				return err
@@ -278,7 +275,7 @@ func (m *Monitor) PM2LogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	err = followFile(r.Context(), path, lines, send)
 	if err != nil && r.Context().Err() == nil {
-		b, _ := json.Marshal(map[string]string{"message": "Log is not readable: " + err.Error()})
+		b, _ := json.Marshal(map[string]string{"message": "Log file is missing or not readable"})
 		fmt.Fprintf(w, "event: gone\ndata: %s\n\n", b)
 		flusher.Flush()
 	}
