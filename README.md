@@ -208,6 +208,7 @@ These took over from the Pi's old Node webserver. They are off unless `PI_ENDPOI
 | `GET /monitor/history?range=` | monitor-canvas | Readings over `15m` … `2y`, in columns, from the finest tier that covers the range. |
 | `GET /monitor/events?limit=` | monitor-canvas | Service status changes, newest first. |
 | `GET /monitor/storage` | monitor-canvas | How many rows each tier holds against its capacity, and the file's size. |
+| `GET /monitor/logs/pm2/{name}?stream=&lines=` | monitor-canvas | Server-sent events: a pm2 process's log, live. See [Streaming logs](#streaming-logs). |
 | `POST /amazon-prices` | amazon-scraper | Local only. |
 | `GET /amazon-prices/last?url=` | amazon-scraper | Local only. `lastPrice` is `null` when nothing is recorded. |
 | `POST /zigzag/score` | zigzag game | Only accepted from `http://raspberrypi.local` or `https://alexisraspberry.duckdns.org` (Origin or Referer). |
@@ -226,6 +227,29 @@ The game pages are static files served by nginx. The Pi's nginx config, includin
 ```bash
 redis-cli ZRANGE user:zigzag_highscore:scores 0 -1 WITHSCORES \
   | go run ./cmd/import-webserver -from ../clipboard/DB/database.sqlite
+```
+
+### Streaming logs
+
+`GET /monitor/logs/pm2/{name}` streams a pm2 process's log file while the client is connected. It is a stream, not storage: nothing is copied, buffered to disk or kept once the client goes, and with nobody watching it does no work. Like the other monitor endpoints it is LAN-only, which matters more here because logs are more sensitive than metrics.
+
+- `{name}` must be a pm2 process from the monitor's latest check, or the response is a JSON 404. The file path comes from `pm2 jlist` when the request arrives, never from the request.
+- `stream=out` (default) follows `pm_out_log_path`, `stream=err` follows `pm_err_log_path`. Anything else is a 400.
+- `lines` is how many lines the first event carries: 200 by default, 1000 at most; a bad value gives the default.
+
+Events:
+
+```
+data: {"lines": ["...", "..."]}
+
+event: gone
+data: {"message": "..."}
+```
+
+The first `data` event holds the last `lines` lines (read by seeking from the end of the file). After that the file is checked about once a second and any new complete lines are sent in one event of the same shape; nothing is sent when nothing is new. `pm2 flush` (truncation) restarts from the top of the file and log rotation reopens the path. Lines over 8 KiB are cut, invalid UTF-8 is replaced with U+FFFD, and ANSI colour codes are left in. If the file cannot be read (missing, `/dev/null`, permission) a `gone` event is sent and the response ends.
+
+```bash
+curl -N 'localhost:8080/monitor/logs/pm2/go-server-dev?stream=err'
 ```
 
 ### Monitoring the Pi
