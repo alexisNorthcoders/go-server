@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +24,15 @@ const (
 	maxTailBytes    = 8 << 20  // the most the first event reads
 	maxPollBytes    = 4 << 20  // the most one check reads
 )
+
+// errNotRegular marks a log path that is not a regular file, such as /dev/null.
+var errNotRegular = errors.New("not a regular file")
+
+// unreadable reports whether err means the log file itself is missing, not
+// permitted or not a regular file, as opposed to a failure while reading it.
+func unreadable(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, errNotRegular)
+}
 
 // logPoll is how often a followed file is checked.
 var logPoll = time.Second
@@ -105,7 +116,7 @@ func openLog(path string) (*os.File, error) {
 	}
 	fi, err := f.Stat()
 	if err == nil && !fi.Mode().IsRegular() {
-		err = fmt.Errorf("%s is not a regular file", path)
+		err = fmt.Errorf("%s: %w", path, errNotRegular)
 	}
 	if err != nil {
 		f.Close()
@@ -148,6 +159,9 @@ func tailLines(f *os.File, n int) ([]string, int64, error) {
 	}
 	if out == nil {
 		out = []string{}
+	}
+	if end == 0 && pos > 0 { // no line boundary in the window: follow from the end
+		return out, size, nil
 	}
 	return out, pos + int64(end), nil
 }
@@ -275,6 +289,10 @@ func (m *Monitor) PM2LogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	err = followFile(r.Context(), path, lines, send)
 	if err != nil && r.Context().Err() == nil {
+		if !unreadable(err) {
+			log.Printf("monitor: following %q: %v", path, err)
+			return
+		}
 		b, _ := json.Marshal(map[string]string{"message": "Log file is missing or not readable"})
 		fmt.Fprintf(w, "event: gone\ndata: %s\n\n", b)
 		flusher.Flush()
