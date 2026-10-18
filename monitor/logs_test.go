@@ -3,9 +3,11 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -233,5 +235,124 @@ func TestPM2LogsHandler(t *testing.T) {
 	rec = serve(m, "/monitor/logs/pm2/app")
 	if !strings.Contains(rec.Body.String(), "event: gone\ndata: {\"message\":") {
 		t.Fatalf("%q", rec.Body.String())
+	}
+}
+
+func fakeDocker(t *testing.T, script string) *[]string {
+	t.Helper()
+	old, oldFlush := dockerLogsCmd, logFlush
+	logFlush = 50 * time.Millisecond
+	var got []string
+	dockerLogsCmd = func(ctx context.Context, name string, lines int) *exec.Cmd {
+		got = []string{"logs", "--follow", "--tail", fmt.Sprint(lines), "--", name}
+		return exec.CommandContext(ctx, "sh", "-c", script)
+	}
+	t.Cleanup(func() { dockerLogsCmd, logFlush = old, oldFlush })
+	return &got
+}
+
+func TestDockerLogsCmdKeepsNameAfterDashes(t *testing.T) {
+	args := dockerLogsCmd(context.Background(), "-rf", 5).Args
+	want := []string{"docker", "logs", "--follow", "--tail", "5", "--", "-rf"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Fatalf("%v", args)
+	}
+}
+
+func TestFollowReaderBatchesAndSendsRest(t *testing.T) {
+	old := logFlush
+	logFlush = 100 * time.Millisecond
+	t.Cleanup(func() { logFlush = old })
+	pr, pw := io.Pipe()
+	var batches [][]string
+	done := make(chan error, 1)
+	go func() {
+		done <- followReader(context.Background(), pr, func(l []string) error { batches = append(batches, l); return nil })
+	}()
+	pw.Write([]byte("a\nb\nc"))
+	pw.Write([]byte("d\n"))
+	time.Sleep(300 * time.Millisecond) // past one flush
+	pw.Write([]byte("e\nlast"))
+	pw.Close()
+	if err := <-done; err != io.EOF {
+		t.Fatal(err)
+	}
+	if len(batches) != 2 || strings.Join(batches[0], ",") != "a,b,cd" || strings.Join(batches[1], ",") != "e,last" {
+		t.Fatalf("%q", batches)
+	}
+}
+
+func TestDockerLogsHandlerStreamsThenGone(t *testing.T) {
+	got := fakeDocker(t, "echo out1; echo err1 >&2; echo out2; exit 3")
+	m := logsMonitor(t, "", "")
+	rec := serve(m, "/monitor/logs/docker/box?lines=7")
+	body := rec.Body.String()
+	if !strings.Contains(body, "data: {\"lines\":[\"out1\",\"out2\"]}\n\n") || strings.Contains(body, "err1") {
+		t.Fatalf("%q", body)
+	}
+	if !strings.Contains(body, "event: gone\ndata: {\"message\":\"docker logs stopped: exit status 3\"}") {
+		t.Fatalf("%q", body)
+	}
+	if strings.Join(*got, " ") != "logs --follow --tail 7 -- box" {
+		t.Fatalf("%v", *got)
+	}
+
+	fakeDocker(t, "echo out1; echo err1 >&2")
+	rec = serve(m, "/monitor/logs/docker/box?stream=err")
+	if !strings.Contains(rec.Body.String(), "{\"lines\":[\"err1\"]}") || strings.Contains(rec.Body.String(), "out1") {
+		t.Fatalf("%q", rec.Body.String())
+	}
+}
+
+func TestDockerLogsHandlerRejects(t *testing.T) {
+	fakeDocker(t, "exit 0")
+	m := logsMonitor(t, "", "")
+	for _, u := range []string{"/monitor/logs/docker/nope", "/monitor/logs/docker/app", "/monitor/logs/docker/-f"} {
+		if rec := serve(m, u); rec.Code != 404 {
+			t.Errorf("%s: status %d", u, rec.Code)
+		}
+	}
+	if rec := serve(m, "/monitor/logs/docker/box?stream=x"); rec.Code != 400 {
+		t.Errorf("status %d", rec.Code)
+	}
+}
+
+func TestDockerDisconnectKillsProcess(t *testing.T) {
+	fakeDocker(t, "echo hi; exec sleep 60")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	var sent = make(chan struct{}, 1)
+	go func() {
+		done <- followDocker(ctx, "box", "out", 5, func([]string) error { sent <- struct{}{}; return nil })
+	}()
+	select {
+	case <-sent:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no lines")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("did not stop")
+	}
+}
+
+func TestDockerLogsBatchesLinesArrivingTogether(t *testing.T) {
+	fakeDocker(t, "echo a; echo b; echo c; sleep 0.3; echo d; echo e; exit 0")
+	logFlush = 150 * time.Millisecond
+	m := logsMonitor(t, "", "")
+	body := serve(m, "/monitor/logs/docker/box").Body.String()
+	if n := strings.Count(body, "data: {\"lines\""); n != 2 {
+		t.Fatalf("want 2 batches for 5 lines, got %d: %q", n, body)
+	}
+	if !strings.Contains(body, "{\"lines\":[\"a\",\"b\",\"c\"]}") || !strings.Contains(body, "{\"lines\":[\"d\",\"e\"]}") {
+		t.Fatalf("%q", body)
+	}
+	if !strings.Contains(body, "event: gone\ndata: {\"message\":\"Container's logs ended\"}") {
+		t.Fatalf("%q", body)
 	}
 }
