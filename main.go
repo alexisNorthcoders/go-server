@@ -73,6 +73,19 @@ func registerPiRoutes(mon *monitor.Monitor) {
 	http.HandleFunc("POST /zigzag/score", logRequest(handlers.PostZigzagScoreHandler, "/zigzag/score"))
 	http.HandleFunc("GET /zigzag/score", logRequest(handlers.ZigzagScoresHandler, "/zigzag/score"))
 	http.Handle("GET /api-docs/", handlers.APIDocsHandler())
+	registerDecisionRoutes(os.Getenv("REDDIT_BOT_NODE"), os.Getenv("REDDIT_BOT_DIR"))
+}
+
+// registerDecisionRoutes adds the Claude Practice Decision endpoints, which run
+// reddit-bot's Decision command. They need both paths to be set.
+func registerDecisionRoutes(node, dir string) {
+	if node == "" || dir == "" {
+		log.Println("Warning: REDDIT_BOT_NODE or REDDIT_BOT_DIR is not set; Claude Practice Decision endpoints disabled")
+		return
+	}
+	d := handlers.DecisionHandlers{Run: handlers.ExecDecisionRunner(node, dir)}
+	http.HandleFunc("GET /claude-techniques/api/decisions", logRequest(handlers.ProxiedLoopbackOnly(d.List), "/claude-techniques/api/decisions"))
+	http.HandleFunc("POST /claude-techniques/api/decisions/{id}", logRequest(handlers.ProxiedLoopbackOnly(d.Post), "/claude-techniques/api/decisions/{id}"))
 }
 
 func migrateScoresRouter(w http.ResponseWriter, r *http.Request) {
