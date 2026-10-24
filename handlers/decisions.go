@@ -72,11 +72,6 @@ func (d DecisionHandlers) call(r *http.Request, args ...string) ([]byte, int, st
 	if msg == "" {
 		msg = err.Error()
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		// The command rejects ids it does not know with a non-zero exit.
-		return nil, http.StatusUnprocessableEntity, msg
-	}
 	return nil, http.StatusInternalServerError, msg
 }
 
@@ -112,30 +107,17 @@ func (d DecisionHandlers) Post(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `decision must be "adopted" or "rejected"`})
 		return
 	}
-	idArg := strconv.Itoa(id)
-	if _, status, msg := d.call(r, verb, idArg); status != http.StatusOK {
-		writeJSON(w, status, map[string]string{"error": msg})
-		return
-	}
-	out, status, msg := d.call(r, "list", "--json")
+	out, status, msg := d.call(r, verb, strconv.Itoa(id))
 	if status != http.StatusOK {
 		writeJSON(w, status, map[string]string{"error": msg})
 		return
 	}
-	var all []struct {
-		TechniqueID int `json:"techniqueId"`
-	}
-	var raw []json.RawMessage
-	if json.Unmarshal(out, &all) != nil || json.Unmarshal(out, &raw) != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "decision command printed invalid JSON"})
+	// The command reports success on stderr and prints nothing to stdout, so
+	// pass its stdout through only when it carries a Decision.
+	if json.Valid(bytes.TrimSpace(out)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
 		return
 	}
-	for i, e := range all {
-		if e.TechniqueID == id {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(raw[i])
-			return
-		}
-	}
-	writeJSON(w, http.StatusBadGateway, map[string]string{"error": "decision not found after recording"})
+	writeJSON(w, http.StatusOK, map[string]any{"techniqueId": id, "decision": req.Decision})
 }

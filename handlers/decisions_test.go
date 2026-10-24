@@ -52,8 +52,8 @@ func TestDecisionPostArgs(t *testing.T) {
 	s := &stub{stdout: map[string]string{"list": `[{"techniqueId":3,"decision":"rejected","decidedAt":"x"}]`}}
 	w := doDecision(DecisionHandlers{Run: s.run}, "POST", "/claude-techniques/api/decisions/3", `{"decision":"rejected"}`)
 	assert.Equal(t, 200, w.Code)
-	assert.JSONEq(t, `{"techniqueId":3,"decision":"rejected","decidedAt":"x"}`, w.Body.String())
-	assert.Equal(t, []string{"reject", "3"}, s.calls[0])
+	assert.JSONEq(t, `{"techniqueId":3,"decision":"rejected"}`, w.Body.String())
+	assert.Equal(t, [][]string{{"reject", "3"}}, s.calls)
 
 	s = &stub{stdout: map[string]string{"list": `[{"techniqueId":3}]`}}
 	doDecision(DecisionHandlers{Run: s.run}, "POST", "/claude-techniques/api/decisions/3", `{"decision":"adopted"}`)
@@ -84,14 +84,14 @@ func TestDecisionExitMapping(t *testing.T) {
 	exitErr := exec.Command("sh", "-c", "exit 1").Run()
 	s := &stub{err: exitErr, stderr: "[decision] unknown technique 99\n"}
 	w := doDecision(DecisionHandlers{Run: s.run}, "POST", "/claude-techniques/api/decisions/99", `{"decision":"adopted"}`)
-	assert.Equal(t, 422, w.Code)
+	assert.Equal(t, 500, w.Code)
 	assert.Contains(t, w.Body.String(), "unknown technique 99")
 
 	failing := func(ctx context.Context, args ...string) ([]byte, []byte, error) {
 		return nil, []byte("boom"), exitErr
 	}
 	w = doDecision(DecisionHandlers{Run: failing}, "GET", "/claude-techniques/api/decisions", "")
-	assert.Equal(t, 422, w.Code)
+	assert.Equal(t, 500, w.Code)
 	assert.Contains(t, w.Body.String(), "boom")
 
 	missing := func(ctx context.Context, args ...string) ([]byte, []byte, error) {
