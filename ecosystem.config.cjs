@@ -19,6 +19,9 @@ module.exports = {
       // The Pi's go-server: also serve the endpoints taken over from its old
       // Node webserver.
       PI_ENDPOINTS: "true",
+      // reddit-bot's Decision command, run by the /claude-techniques/api/decisions endpoints.
+      REDDIT_BOT_NODE: process.env.REDDIT_BOT_NODE,
+      REDDIT_BOT_DIR: process.env.REDDIT_BOT_DIR,
     },
   }],
 };
