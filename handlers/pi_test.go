@@ -175,11 +175,11 @@ func TestZigzagScoreRateLimitedPerClient(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, post("203.0.113.2", ""))
 }
 
-func TestZigzagClientIPTrustsXRealIPOnlyFromThisMachine(t *testing.T) {
+func TestClientIPTrustsXRealIPOnlyFromThisMachine(t *testing.T) {
 	r := httptest.NewRequest("POST", "/zigzag/score", nil)
 	r.Header.Set("X-Real-IP", "203.0.113.1")
 	r.RemoteAddr = "127.0.0.1:5000"
-	assert.Equal(t, "203.0.113.1", zigzagClientIP(r))
+	assert.Equal(t, "203.0.113.1", clientIP(r))
 	r.RemoteAddr = "192.0.2.50:5000"
-	assert.Equal(t, "192.0.2.50", zigzagClientIP(r))
+	assert.Equal(t, "192.0.2.50", clientIP(r))
 }

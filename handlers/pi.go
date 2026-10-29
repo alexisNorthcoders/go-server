@@ -127,11 +127,11 @@ const maxZigzagScore = 1_000_000
 
 var zigzagScoreLimiter = utils.NewRateLimiter(6, time.Minute)
 
-// zigzagClientIP is the address nginx saw (X-Real-IP, which it overwrites), or
+// clientIP is the address nginx saw (X-Real-IP, which it overwrites), or
 // the connection's own address for a request that did not come through nginx.
 // X-Forwarded-For is not used: nginx appends to it, so a client controls its
 // first entry.
-func zigzagClientIP(r *http.Request) string {
+func clientIP(r *http.Request) string {
 	if ip := r.Header.Get("X-Real-IP"); ip != "" && isOwnAddress(r.RemoteAddr) {
 		return ip
 	}
@@ -169,7 +169,7 @@ func PostZigzagScoreHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Invalid origin or referer"})
 		return
 	}
-	if !zigzagScoreLimiter.Allow(zigzagClientIP(r)) {
+	if !zigzagScoreLimiter.Allow(clientIP(r)) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Too many scores, try again later"})
 		return
 	}

@@ -5,7 +5,6 @@ import (
 	"go-server/models"
 	"go-server/utils"
 	"log"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -18,11 +17,10 @@ var addScoreLimiter = utils.NewRateLimiter(10, 1*time.Minute)
 // rejectIfRateLimited writes the shared 429 response and returns true when the
 // request's client IP has exceeded the given limiter.
 func rejectIfRateLimited(w http.ResponseWriter, r *http.Request, limiter *utils.RateLimiter) bool {
-	if limiter.Allow(getClientIP(r)) {
+	if limiter.Allow(clientIP(r)) {
 		return false
 	}
-	w.Header().Set("Content-Type", "application/json")
-	http.Error(w, `{"error":"Rate limit exceeded. Maximum 10 submissions per minute."}`, http.StatusTooManyRequests)
+	writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "Rate limit exceeded. Try again later."})
 	return true
 }
 
@@ -220,30 +218,6 @@ func PostAnonymousScoreHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Anonymous score added"})
-}
-
-// getClientIP extracts the client IP from the request, accounting for proxies
-func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header first (for proxied requests)
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		ips := strings.Split(forwarded, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-
-	// Check X-Real-IP header
-	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
-		return realIP
-	}
-
-	// Fall back to RemoteAddr
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
 }
 
 func GetUserScoresWithPathHandler(w http.ResponseWriter, r *http.Request, userID string) {
