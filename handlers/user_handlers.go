@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"go-server/models"
 	"go-server/utils"
@@ -18,9 +20,40 @@ type AuthRequest struct {
 	Password string `json:"password"`
 }
 
+const maxRegisterBodyBytes = 4 << 10
+
+// validateRegistration returns the trimmed username to store, or a message
+// naming the first rule that failed.
+func validateRegistration(username, password string) (string, string) {
+	username = strings.TrimSpace(username)
+	if n := utf8.RuneCountInString(username); n < 3 || n > 32 {
+		return "", "Username must be 3-32 characters"
+	}
+	if strings.IndexFunc(username, unicode.IsControl) >= 0 {
+		return "", "Username must not contain control characters"
+	}
+	if strings.EqualFold(username, "anonymous") {
+		return "", "Username is reserved"
+	}
+	if len(password) < 8 || len(password) > 72 {
+		return "", "Password must be 8-72 bytes"
+	}
+	return username, ""
+}
+
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	var req AuthRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	username, problem := validateRegistration(req.Username, req.Password)
+	if problem != "" {
+		http.Error(w, problem, http.StatusBadRequest)
+		return
+	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -28,7 +61,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = models.CreateUser(req.Username, string(hashed))
+	err = models.CreateUser(username, string(hashed))
 	if err != nil {
 		http.Error(w, "User already exists or error saving user", http.StatusBadRequest)
 		return
