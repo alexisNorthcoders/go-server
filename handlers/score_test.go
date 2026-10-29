@@ -318,26 +318,38 @@ func TestAnonymousHandlerCreatesNoUserRow(t *testing.T) {
 	assert.Equal(t, before, count())
 }
 
-// exhaustLimit calls do() 10 times expecting success, then expects a 429 with
-// the shared body, then checks a different IP is unaffected.
-func assertRateLimited(t *testing.T, ip string, do func(ip string) *httptest.ResponseRecorder) {
+// assertRateLimited calls do() limit times expecting success, then expects the
+// generic JSON 429, then checks a made-up X-Forwarded-For gets no fresh
+// allowance and a different X-Real-IP is unaffected.
+func assertRateLimited(t *testing.T, ip string, limit int, do func(realIP, forwardedFor string) *httptest.ResponseRecorder) {
 	t.Helper()
-	for i := 0; i < 10; i++ {
-		assert.NotEqual(t, http.StatusTooManyRequests, do(ip).Code, "request %d", i+1)
+	for i := 0; i < limit; i++ {
+		assert.NotEqual(t, http.StatusTooManyRequests, do(ip, "").Code, "request %d", i+1)
 	}
-	resp := do(ip)
+	resp := do(ip, "")
 	assert.Equal(t, http.StatusTooManyRequests, resp.Code)
-	assert.Contains(t, resp.Body.String(), "Rate limit exceeded. Maximum 10 submissions per minute.")
-	assert.NotEqual(t, http.StatusTooManyRequests, do(ip+".other").Code)
+	assert.Equal(t, "application/json", resp.Header().Get("Content-Type"))
+	assert.JSONEq(t, `{"error":"Rate limit exceeded. Try again later."}`, resp.Body.String())
+	assert.Equal(t, http.StatusTooManyRequests, do(ip, "198.51.100.7").Code)
+	assert.NotEqual(t, http.StatusTooManyRequests, do(ip+".other", "").Code)
+}
+
+// fromNginx marks r as forwarded by nginx on this host.
+func fromNginx(r *http.Request, realIP, forwardedFor string) {
+	r.RemoteAddr = "127.0.0.1:5000"
+	r.Header.Set("X-Real-IP", realIP)
+	if forwardedFor != "" {
+		r.Header.Set("X-Forwarded-For", forwardedFor)
+	}
 }
 
 func TestPostAuthenticatedScoreHandlerRateLimited(t *testing.T) {
 	token, _ := utils.GenerateToken("anonymous", "rl-user-auth")
-	assertRateLimited(t, "203.0.113.10", func(ip string) *httptest.ResponseRecorder {
+	assertRateLimited(t, "203.0.113.10", 10, func(realIP, xff string) *httptest.ResponseRecorder {
 		body, _ := json.Marshal(AuthenticatedScoreRequest{ClientID: "rl-client", Score: 5, Mode: "endless"})
 		r := httptest.NewRequest("POST", "/scores", bytes.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("X-Forwarded-For", ip+", 10.0.0.1")
+		fromNginx(r, realIP, xff)
 		w := httptest.NewRecorder()
 		PostAuthenticatedScoreHandler(w, r)
 		return w
@@ -346,11 +358,11 @@ func TestPostAuthenticatedScoreHandlerRateLimited(t *testing.T) {
 
 func TestAddScoreHandlerRateLimited(t *testing.T) {
 	token, _ := utils.GenerateToken("anonymous", "rl-user-add")
-	assertRateLimited(t, "203.0.113.20", func(ip string) *httptest.ResponseRecorder {
+	assertRateLimited(t, "203.0.113.20", 10, func(realIP, xff string) *httptest.ResponseRecorder {
 		body, _ := json.Marshal(map[string]any{"score": 5, "mode": "endless"})
 		r := httptest.NewRequest("POST", "/add-score", bytes.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("X-Forwarded-For", ip)
+		fromNginx(r, realIP, xff)
 		w := httptest.NewRecorder()
 		AddScoreHandler(w, r)
 		return w
@@ -358,9 +370,9 @@ func TestAddScoreHandlerRateLimited(t *testing.T) {
 }
 
 func TestAnonymousHandlerRateLimited(t *testing.T) {
-	assertRateLimited(t, "203.0.113.30", func(ip string) *httptest.ResponseRecorder {
+	assertRateLimited(t, "203.0.113.30", 10, func(realIP, xff string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/anonymous", nil)
-		r.Header.Set("X-Forwarded-For", ip)
+		fromNginx(r, realIP, xff)
 		w := httptest.NewRecorder()
 		AnonymousHandler(w, r)
 		return w
