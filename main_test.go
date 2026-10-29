@@ -114,5 +114,5 @@ func TestAccountRoutes(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, serve("POST", "/register", `{"username":"alice","password":"password123"}`).Code)
 	assert.Equal(t, 1, accounts())
-	assert.Equal(t, http.StatusNotFound, serve("POST", "/login", `{"username":"nobody","password":"b"}`).Code)
+	assert.Equal(t, http.StatusUnauthorized, serve("POST", "/login", `{"username":"nobody","password":"b"}`).Code)
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go-server/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func registerRaw(body string) *httptest.ResponseRecorder {
@@ -144,4 +146,82 @@ func TestRegisterAcceptsUnknownFieldsAndRejectsDuplicates(t *testing.T) {
 	response = register(username, "password123")
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.Contains(t, response.Body.String(), "User already exists or error saving user")
+}
+
+func loginRaw(body string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+	response := httptest.NewRecorder()
+	LoginHandler(response, request)
+	return response
+}
+
+func login(username, password string) *httptest.ResponseRecorder {
+	return loginRaw(`{"username":` + jsonString(username) + `,"password":` + jsonString(password) + `}`)
+}
+
+func TestLoginRejectsBadBodies(t *testing.T) {
+	cases := map[string]string{
+		"empty body":     "",
+		"malformed JSON": "{not json",
+		"oversized body": `{"username":"x","password":"` + strings.Repeat("a", 5000) + `"}`,
+		"empty username": `{"username":"","password":"password123"}`,
+		"blank username": `{"username":"   ","password":"password123"}`,
+		"empty password": `{"username":"someone","password":""}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, http.StatusBadRequest, loginRaw(body).Code)
+		})
+	}
+}
+
+func TestLoginFailuresAreIndistinguishable(t *testing.T) {
+	name := uniqueName("login-fail")
+	assert.Equal(t, http.StatusOK, register(name, "password123").Code)
+
+	unknown := login(uniqueName("nobody"), "password123")
+	wrong := login(name, "wrong-password")
+	long := login(name, strings.Repeat("a", 73))
+
+	assert.Equal(t, http.StatusUnauthorized, unknown.Code)
+	for _, got := range []*httptest.ResponseRecorder{wrong, long} {
+		assert.Equal(t, unknown.Code, got.Code)
+		assert.Equal(t, unknown.Body.String(), got.Body.String())
+	}
+	assert.Equal(t, "Invalid username or password\n", unknown.Body.String())
+}
+
+func TestLoginTrimsUsername(t *testing.T) {
+	name := uniqueName("login-trim")
+	assert.Equal(t, http.StatusOK, register(name, "password123").Code)
+	assert.Equal(t, http.StatusOK, login("  "+name+"\t ", "password123").Code)
+}
+
+func TestLoginAcceptsLegacyShortPassword(t *testing.T) {
+	name := uniqueName("legacy")
+	hash, err := bcrypt.GenerateFromPassword([]byte("abc"), bcrypt.MinCost)
+	assert.NoError(t, err)
+	assert.NoError(t, models.CreateUser(name, string(hash)))
+	assert.Equal(t, http.StatusOK, login(name, "abc").Code)
+}
+
+func TestLoginTokenVerifiesAsAccount(t *testing.T) {
+	name := uniqueName("login-ok")
+	assert.Equal(t, http.StatusOK, register(name, "password123").Code)
+
+	w := login(name, "password123")
+	assert.Equal(t, http.StatusOK, w.Code)
+	var out map[string]string
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "Login successful!", out["message"])
+	assert.NotEmpty(t, out["userId"])
+
+	r := httptest.NewRequest("POST", "/verify-token", nil)
+	r.Header.Set("Authorization", "Bearer "+out["accessToken"])
+	v := httptest.NewRecorder()
+	ValidateHandler(v, r)
+	assert.Equal(t, http.StatusOK, v.Code)
+	var verified map[string]any
+	assert.NoError(t, json.Unmarshal(v.Body.Bytes(), &verified))
+	assert.Equal(t, "account", verified["kind"])
 }
