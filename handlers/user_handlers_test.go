@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,8 +15,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var testIPCounter atomic.Int64
+
+// freshIP gives each helper call its own client IP so the per-IP limiters
+// don't see the whole test suite as one client.
+func freshIP() string {
+	n := testIPCounter.Add(1)
+	return fmt.Sprintf("198.18.%d.%d:1", n/250, n%250+1)
+}
+
 func registerRaw(body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest("POST", "/register", strings.NewReader(body))
+	request.RemoteAddr = freshIP()
 	response := httptest.NewRecorder()
 	RegisterHandler(response, request)
 	return response
@@ -150,6 +162,7 @@ func TestRegisterAcceptsUnknownFieldsAndRejectsDuplicates(t *testing.T) {
 
 func loginRaw(body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+	request.RemoteAddr = freshIP()
 	response := httptest.NewRecorder()
 	LoginHandler(response, request)
 	return response
@@ -224,4 +237,39 @@ func TestLoginTokenVerifiesAsAccount(t *testing.T) {
 	var verified map[string]any
 	assert.NoError(t, json.Unmarshal(v.Body.Bytes(), &verified))
 	assert.Equal(t, "account", verified["kind"])
+}
+
+func TestLoginRateLimited(t *testing.T) {
+	assertRateLimited(t, "203.0.113.40", 10, func(realIP, xff string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/login", strings.NewReader(`{"username":"nobody-rl","password":"whatever1"}`))
+		fromNginx(r, realIP, xff)
+		w := httptest.NewRecorder()
+		LoginHandler(w, r)
+		return w
+	})
+}
+
+func TestRegisterRateLimitedBeforeParsing(t *testing.T) {
+	do := func(realIP, xff, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/register", strings.NewReader(body))
+		fromNginx(r, realIP, xff)
+		w := httptest.NewRecorder()
+		RegisterHandler(w, r)
+		return w
+	}
+	validBody := func() string {
+		return `{"username":` + jsonString(uniqueName("rl-reg-")) + `,"password":"password123"}`
+	}
+	ip := "203.0.113.50"
+	for i := 0; i < 5; i++ {
+		assert.Equal(t, http.StatusOK, do(ip, "", validBody()).Code, "request %d", i+1)
+	}
+	before := userCount(t)
+	resp := do(ip, "", validBody())
+	assert.Equal(t, http.StatusTooManyRequests, resp.Code)
+	assert.Equal(t, "application/json", resp.Header().Get("Content-Type"))
+	assert.JSONEq(t, `{"error":"Rate limit exceeded. Try again later."}`, resp.Body.String())
+	assert.Equal(t, http.StatusTooManyRequests, do(ip, "198.51.100.7", validBody()).Code)
+	assert.Equal(t, before, userCount(t))
+	assert.Equal(t, http.StatusOK, do(ip+".other", "", validBody()).Code)
 }
