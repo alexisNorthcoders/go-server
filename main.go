@@ -26,8 +26,7 @@ func main() {
 		log.Println("BOT_RESULTS_SECRET is not set: POST /bot-results will refuse every report")
 	}
 
-	http.HandleFunc("/register", logRequest(handlers.RegisterHandler, "/register"))
-	http.HandleFunc("/login", logRequest(handlers.LoginHandler, "/login"))
+	registerAccountRoutes(http.DefaultServeMux)
 	http.HandleFunc("/anonymous", logRequest(handlers.AnonymousHandler, "/anonymous"))
 	http.HandleFunc("/logout", logRequest(handlers.LogoutHandler, "/logout"))
 	http.HandleFunc("/verify-token", logRequest(handlers.ValidateHandler, "/verify-token"))
@@ -58,6 +57,13 @@ func main() {
 
 	log.Println("Server running on :8080")
 	http.ListenAndServe(":8080", nil)
+}
+
+// registerAccountRoutes adds /register and /login. Both take only POST; the mux
+// answers any other method with 405 and an Allow header.
+func registerAccountRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /register", logRequest(handlers.RegisterHandler, "/register"))
+	mux.HandleFunc("POST /login", logRequest(handlers.LoginHandler, "/login"))
 }
 
 // registerPiRoutes adds the endpoints taken over from the Raspberry Pi's old

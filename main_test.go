@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert" // Considera usar assert para uma saída de teste mais clara
@@ -78,4 +79,40 @@ func TestPiRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, docs.Code)
 	assert.Contains(t, docs.Body.String(), "swagger-ui")
 	assert.Contains(t, serve("GET", "/api-docs/openapi.yaml").Body.String(), "/zigzag/score:")
+}
+
+func TestAccountRoutes(t *testing.T) {
+	wd, _ := os.Getwd()
+	assert.NoError(t, os.Chdir(t.TempDir()))
+	defer os.Chdir(wd)
+	assert.NoError(t, models.InitDB())
+	defer models.DB.Close()
+	mux := http.NewServeMux()
+	registerAccountRoutes(mux)
+
+	serve := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.RemoteAddr = "127.0.0.1:1234"
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+	accounts := func() int {
+		var n int
+		assert.NoError(t, models.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&n))
+		return n
+	}
+
+	for _, path := range []string{"/register", "/login"} {
+		for _, method := range []string{"GET", "OPTIONS", "PUT", "DELETE"} {
+			w := serve(method, path, "")
+			assert.Equal(t, http.StatusMethodNotAllowed, w.Code, method+" "+path)
+			assert.Equal(t, "POST", w.Header().Get("Allow"), method+" "+path)
+		}
+	}
+	assert.Equal(t, 0, accounts())
+
+	assert.Equal(t, http.StatusOK, serve("POST", "/register", `{"username":"a","password":"b"}`).Code)
+	assert.Equal(t, 1, accounts())
+	assert.Equal(t, http.StatusNotFound, serve("POST", "/login", `{"username":"nobody","password":"b"}`).Code)
 }

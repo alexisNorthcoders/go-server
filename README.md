@@ -63,6 +63,8 @@ Registers a new user.
 }
 ```
 
+**Responses:** `200` created, `400` user already exists, `405` any method other than `POST`.
+
 ---
 
 ### `POST /login`
@@ -87,6 +89,8 @@ Authenticates a user and returns a JWT token.
   "userId": "user_id"
 }
 ```
+
+**Responses:** `200` logged in, `401` wrong password, `404` unknown user, `405` any method other than `POST`.
 
 ---
 
