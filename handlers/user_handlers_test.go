@@ -250,8 +250,6 @@ func TestLoginRateLimited(t *testing.T) {
 }
 
 func TestRegisterRateLimitedBeforeParsing(t *testing.T) {
-	name := uniqueName("rl-reg-")
-	body := `{"username":` + jsonString(name) + `,"password":"password123"}`
 	do := func(realIP, xff, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/register", strings.NewReader(body))
 		fromNginx(r, realIP, xff)
@@ -259,15 +257,19 @@ func TestRegisterRateLimitedBeforeParsing(t *testing.T) {
 		RegisterHandler(w, r)
 		return w
 	}
+	validBody := func() string {
+		return `{"username":` + jsonString(uniqueName("rl-reg-")) + `,"password":"password123"}`
+	}
 	ip := "203.0.113.50"
 	for i := 0; i < 5; i++ {
-		assert.Equal(t, http.StatusBadRequest, do(ip, "", "{not json").Code)
+		assert.Equal(t, http.StatusOK, do(ip, "", validBody()).Code, "request %d", i+1)
 	}
 	before := userCount(t)
-	resp := do(ip, "", body)
+	resp := do(ip, "", validBody())
 	assert.Equal(t, http.StatusTooManyRequests, resp.Code)
+	assert.Equal(t, "application/json", resp.Header().Get("Content-Type"))
 	assert.JSONEq(t, `{"error":"Rate limit exceeded. Try again later."}`, resp.Body.String())
-	assert.Equal(t, http.StatusTooManyRequests, do(ip, "198.51.100.7", body).Code)
+	assert.Equal(t, http.StatusTooManyRequests, do(ip, "198.51.100.7", validBody()).Code)
 	assert.Equal(t, before, userCount(t))
-	assert.Equal(t, http.StatusOK, do(ip+".other", "", body).Code)
+	assert.Equal(t, http.StatusOK, do(ip+".other", "", validBody()).Code)
 }
