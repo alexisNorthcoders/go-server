@@ -97,7 +97,7 @@ Authenticates a user and returns a JWT token.
 }
 ```
 
-**Responses:** `200` logged in, `401` wrong password, `404` unknown user, `405` any method other than `POST`.
+**Responses:** `200` logged in, `400` unreadable body or empty username or password, `401` unknown username or wrong password (same body for both), `405` any method other than `POST`.
 
 ---
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -71,19 +72,45 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"message": "User created successfully"})
 }
 
+var (
+	dummyHashOnce sync.Once
+	dummyHash     []byte
+)
+
+// dummyPasswordHash is compared against when a username is unknown, so that
+// path costs about as much as a wrong password.
+func dummyPasswordHash() []byte {
+	dummyHashOnce.Do(func() {
+		dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password"), bcrypt.DefaultCost)
+	})
+	return dummyHash
+}
+
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var req AuthRequest
-	json.NewDecoder(r.Body).Decode(&req)
-
-	user, err := models.FindByUsername(req.Username)
-	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
+	username := strings.TrimSpace(req.Username)
+	if username == "" || req.Password == "" {
+		http.Error(w, "Username and password are required", http.StatusBadRequest)
+		return
+	}
+
+	const invalidCredentials = "Invalid username or password"
+
+	user, err := models.FindByUsername(username)
 	if err != nil {
-		http.Error(w, "Invalid password", http.StatusUnauthorized)
+		bcrypt.CompareHashAndPassword(dummyPasswordHash(), []byte(req.Password))
+		http.Error(w, invalidCredentials, http.StatusUnauthorized)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		http.Error(w, invalidCredentials, http.StatusUnauthorized)
 		return
 	}
 
