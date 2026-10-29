@@ -63,7 +63,14 @@ Registers a new user.
 }
 ```
 
-**Responses:** `200` created, `400` user already exists, `405` any method other than `POST`.
+**Rules:**
+
+- The body is capped at about 4 KB; unknown JSON fields are ignored.
+- The username is trimmed of leading and trailing whitespace and stored trimmed. It must be 3-32 characters, contain no control characters, and not be `anonymous` in any letter case (Guest tokens use that name).
+- The password must be 8-72 bytes and is not trimmed.
+- Existing accounts that break these rules are unaffected.
+
+**Responses:** `200` created. `400` for an empty, malformed or oversized body; a username that breaks a rule (`Username must be 3-32 characters`, no control characters, reserved); a password outside 8-72 bytes (`Password must be 8-72 bytes`); or a username already taken (`User already exists or error saving user`). `405` any method other than `POST`.
 
 ---
 
