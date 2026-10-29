@@ -70,7 +70,7 @@ Registers a new user.
 - The password must be 8-72 bytes and is not trimmed.
 - Existing accounts that break these rules are unaffected.
 
-**Responses:** `200` created. `400` for an empty, malformed or oversized body; a username that breaks a rule (`Username must be 3-32 characters`, no control characters, reserved); a password outside 8-72 bytes (`Password must be 8-72 bytes`); or a username already taken (`User already exists or error saving user`). `405` any method other than `POST`.
+**Responses:** `200` created. `400` for an empty, malformed or oversized body; a username that breaks a rule (`Username must be 3-32 characters`, no control characters, reserved); a password outside 8-72 bytes (`Password must be 8-72 bytes`); or a username already taken (`User already exists or error saving user`). `405` any method other than `POST`. `429` more than 5 requests per minute from one client IP, whether they succeed or not (generic JSON body).
 
 ---
 
@@ -97,7 +97,7 @@ Authenticates a user and returns a JWT token.
 }
 ```
 
-**Responses:** `200` logged in, `400` unreadable body or empty username or password, `401` unknown username or wrong password (same body for both), `405` any method other than `POST`.
+**Responses:** `200` logged in, `400` unreadable body or empty username or password, `401` unknown username or wrong password (same body for both), `405` any method other than `POST`, `429` more than 10 requests per minute from one client IP, whether they succeed or not (generic JSON body).
 
 ---
 

@@ -42,7 +42,14 @@ func validateRegistration(username, password string) (string, string) {
 	return username, ""
 }
 
+var registerLimiter = utils.NewRateLimiter(5, 1*time.Minute)
+var loginLimiter = utils.NewRateLimiter(10, 1*time.Minute)
+
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	if rejectIfRateLimited(w, r, registerLimiter) {
+		return
+	}
+
 	var req AuthRequest
 	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -87,6 +94,10 @@ func dummyPasswordHash() []byte {
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	if rejectIfRateLimited(w, r, loginLimiter) {
+		return
+	}
+
 	var req AuthRequest
 	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
